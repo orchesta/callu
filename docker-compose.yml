@@ -1,0 +1,217 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  CalluApp — Docker Compose (deploy / prod)                 ║
+# ╠══════════════════════════════════════════════════════════════╣
+# ║  This file uses published images from Docker Hub only —    ║
+# ║  no build context required. Suitable for Portainer, remote ║
+# ║  hosts, or any environment that pulls this compose file    ║
+# ║  without the source tree.                                  ║
+# ║                                                            ║
+# ║  Quick Start:                                              ║
+# ║    1. cp .env.example .env — set POSTGRES_PASSWORD, JWT_SECRET_KEY, RABBITMQ_PASS ║
+# ║    2. docker compose up -d                                 ║
+# ║    3. Open http://localhost:3000                            ║
+# ║                                                            ║
+# ║  Local development from source?                            ║
+# ║    docker-compose.override.yml adds build: blocks and is   ║
+# ║    auto-merged by `docker compose up`. Run builds with     ║
+# ║      docker compose up -d --build                          ║
+# ║                                                            ║
+# ║  Using your own PostgreSQL?                                ║
+# ║    1. Edit .env → set DB_HOST to your server               ║
+# ║    2. docker compose up -d api web                         ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+services:
+
+  # ─── PostgreSQL ─────────────────────────────────────────────
+  # Bundled for convenience. Use your own by changing DB_HOST in .env.
+  callu-db:
+    image: postgres:16-alpine
+    container_name: callu-db
+    restart: unless-stopped
+    volumes:
+      - callu_pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-calludb}
+      POSTGRES_USER: ${POSTGRES_USER:-callu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callu} -d ${POSTGRES_DB:-calludb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - callu-internal
+
+  # ─── RabbitMQ (MassTransit — incident escalation, future commands) ───
+  callu-rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: callu-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-callu}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+    volumes:
+      - callu_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    networks:
+      - callu-internal
+
+  # ─── Redis (HybridCache L2 + SignalR backplane + DataProtection key ring) ───
+  # volatile-lru (NOT allkeys-lru): only evict keys that have a TTL. HybridCache L2
+  # entries expire, so they're evictable under memory pressure; the DataProtection
+  # key ring ("callu:dp-keys") has NO TTL and must never be evicted — losing it
+  # invalidates every auth cookie and invitation/reset token ("Invalid token.").
+  callu-redis:
+    image: redis:7-alpine
+    container_name: callu-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
+    volumes:
+      - callu_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - callu-internal
+
+  # ─── Jaeger (OpenTelemetry OTLP) ─────────────────────────────
+  # OTLP gRPC :4317 is NOT published to the host — only callu-api / callu-worker reach it on the Docker network.
+  # UI is bound to 127.0.0.1 only (not LAN/WAN). Set OPEN_TELEMETRY_ENABLED=false in .env to disable export.
+  callu-jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: callu-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    networks:
+      - callu-internal
+
+  # ─── .NET API ───────────────────────────────────────────────
+  # NOT exposed to host — only accessible via nginx (web).
+  # Background jobs run in callu-worker; set Callu__EnableBackgroundServices=true on API to run them in-process instead.
+  callu-api:
+    image: orchestalabs/callu-api:1.0.0
+    container_name: callu-api
+    restart: unless-stopped
+    # No 'ports:' — API is internal only, nginx proxies /api/* to it
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Host=${DB_HOST:-callu-db}; Port=${DB_PORT:-5432}; Database=${POSTGRES_DB:-calludb}; Username=${POSTGRES_USER:-callu}; Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      ConnectionStrings__Redis: ${REDIS_CONNECTION:-callu-redis:6379}
+      RabbitMQ__Host: ${RABBITMQ_HOST:-callu-rabbitmq}
+      RabbitMQ__Username: ${RABBITMQ_USER:-callu}
+      RabbitMQ__Password: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+      Quartz__UsePersistentStore: ${QUARTZ_USE_PERSISTENT_STORE:-false}
+      Callu__EnableBackgroundServices: "false"
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      JwtSettings__Issuer: ${JWT_ISSUER:-CalluApp}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-CalluApp}
+      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-60}
+      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_DAYS:-7}
+      Cors__AllowedOrigins__0: ${CORS_ORIGINS:-http://localhost:3000}
+      CalluSettings__ApiUrl: ${CALLU_PUBLIC_URL:-http://localhost:3000}
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Warning}
+      OpenTelemetry__Enabled: ${OPEN_TELEMETRY_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://callu-jaeger:4317}
+    depends_on:
+      callu-db:
+        condition: service_healthy
+      callu-redis:
+        condition: service_healthy
+      callu-rabbitmq:
+        condition: service_healthy
+      callu-jaeger:
+        condition: service_started
+    volumes:
+      - callu_dpkeys:/app/keys
+      - callu_logs:/app/logs
+    networks:
+      - callu-internal
+
+  # ─── Background worker (escalations, notification retries, health checks, provider registry) ───
+  callu-worker:
+    image: orchestalabs/callu-worker:1.0.0
+    container_name: callu-worker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Worker__HealthPort: "8080"
+      ConnectionStrings__DefaultConnection: >-
+        Host=${DB_HOST:-callu-db}; Port=${DB_PORT:-5432}; Database=${POSTGRES_DB:-calludb}; Username=${POSTGRES_USER:-callu}; Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      ConnectionStrings__Redis: ${REDIS_CONNECTION:-callu-redis:6379}
+      RabbitMQ__Host: ${RABBITMQ_HOST:-callu-rabbitmq}
+      RabbitMQ__Username: ${RABBITMQ_USER:-callu}
+      RabbitMQ__Password: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+      Quartz__UsePersistentStore: ${QUARTZ_USE_PERSISTENT_STORE:-false}
+      CommunicationSettings__DisableSslValidation: "true"
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Warning}
+      OpenTelemetry__Enabled: ${OPEN_TELEMETRY_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://callu-jaeger:4317}
+    depends_on:
+      callu-db:
+        condition: service_healthy
+      callu-redis:
+        condition: service_healthy
+      callu-rabbitmq:
+        condition: service_healthy
+      callu-jaeger:
+        condition: service_started
+    volumes:
+      # Shared DataProtection keyring with the API container — both processes
+      # encrypt SMTP and SIP passwords with this key set, and the Worker's voice
+      # retry job writes call-token blobs that the API must subsequently decrypt.
+      # Losing this volume invalidates all stored credentials.
+      - callu_dpkeys:/app/keys
+    networks:
+      - callu-internal
+
+  # ─── Web UI (nginx) ────────────────────────────────────────
+  # Single entry point: serves SPA + proxies /api/* to API.
+  callu-web:
+    image: orchestalabs/callu-web:1.0.0
+    container_name: callu-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+      # Uncomment to enable HTTPS (requires cert volume below)
+      # - "${HTTPS_PORT:-3443}:3443"
+    depends_on:
+      callu-api:
+        condition: service_started
+      callu-worker:
+        condition: service_started
+    # volumes:
+    #   # Mount your TLS cert + key, then uncomment the HTTPS block in nginx.conf
+    #   - ./certs:/etc/nginx/certs:ro
+    networks:
+      - callu-internal
+
+volumes:
+  callu_pgdata:
+  callu_dpkeys:
+  callu_logs:
+  callu_redis_data:
+  callu_rabbitmq_data:
+
+
+networks:
+  callu-internal:
+    driver: bridge

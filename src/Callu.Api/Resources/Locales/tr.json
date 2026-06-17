@@ -1,0 +1,173 @@
+{
+    "auth": {
+        "invalidCredentials": "Geçersiz e-posta veya şifre",
+        "lockedOut": "Hesap kilitlendi. Lütfen daha sonra tekrar deneyin.",
+        "emailNotConfirmed": "E-posta doğrulanmamış",
+        "loginSuccess": "Giriş başarılı",
+        "emailAlreadyRegistered": "E-posta zaten kayıtlı",
+        "registrationSuccess": "Kayıt başarılı",
+        "registrationError": "Kayıt sırasında bir hata oluştu",
+        "invalidRefreshToken": "Geçersiz yenileme tokeni",
+        "tokenReuseDetected": "Token yeniden kullanımı tespit edildi. Tüm oturumlar sonlandırıldı.",
+        "refreshTokenExpired": "Yenileme tokeni süresi doldu",
+        "userNotFound": "Kullanıcı bulunamadı",
+        "tokenRefreshed": "Token yenilendi"
+    },
+    "errors": {
+        "forbidden": "Bu işlemi gerçekleştirme yetkiniz yok.",
+        "unauthorized": "Kimlik doğrulama gerekli.",
+        "invalidParams": "Geçersiz istek parametreleri.",
+        "cancelled": "İstek iptal edildi.",
+        "unexpected": "Beklenmeyen bir hata oluştu."
+    },
+    "incidents": {
+        "acknowledged": "Olay onaylandı",
+        "resolved": "Olay çözüldü",
+        "closed": "Olay kapatıldı",
+        "reopened": "Olay yeniden açıldı",
+        "escalated": "Olay yükseltildi",
+        "reassigned": "Olay yeniden atandı"
+    },
+    "setup": {
+        "conflict": "Kurulum zaten devam ediyor. Lütfen bekleyin.",
+        "alreadyConfigured": "Sistem zaten yapılandırılmış. İlk kurulum tekrar çalıştırılamaz.",
+        "fieldsRequired": "E-posta, şifre ve organizasyon adı gereklidir.",
+        "completed": "İlk kurulum başarıyla tamamlandı.",
+        "unexpectedError": "Kurulum sırasında beklenmeyen bir hata oluştu."
+    },
+    "users": {
+        "invitationSent": "Davetiye gönderildi",
+        "roleUpdated": "Rol güncellendi",
+        "invitationResent": "Davetiye tekrar gönderildi",
+        "userUpdated": "Kullanıcı güncellendi"
+    },
+    "teams": {
+        "memberAdded": "Üye eklendi",
+        "memberAddFailed": "Üye eklenemedi"
+    },
+    "conference": {
+        "left": "Konferanstan ayrıldınız",
+        "ended": "Konferans sona erdi",
+        "invalidToken": "Geçersiz veya süresi dolmuş token",
+        "incidentNotFound": "Olay bulunamadı",
+        "invalidParticipantToken": "Geçersiz katılımcı tokeni",
+        "hasEnded": "Konferans sona ermiş",
+        "hasExpired": "Konferans süresi dolmuş",
+        "linkInUse": "Bu bağlantı başka bir oturumda zaten kullanılıyor"
+    },
+    "profile": {
+        "updated": "Profil güncellendi",
+        "updateFailed": "Profil güncellenemedi",
+        "passwordChanged": "Şifre değiştirildi",
+        "userNotFound": "Kullanıcı bulunamadı"
+    },
+    "settings": {
+        "smtpSaved": "Ayarlar kaydedildi",
+        "smtpSaveFailed": "SMTP ayarları kaydedilemedi"
+    },
+    "statusPages": {
+        "subscribed": "Abonelik başarılı",
+        "unsubscribed": "Abonelik iptal edildi",
+        "subscriptionConfirmed": "Abonelik onaylandı."
+    },
+    "notifications": {
+        "read": "Okundu olarak işaretlendi",
+        "allRead": "Tümü okundu olarak işaretlendi"
+    },
+    "channels": {
+        "toggled": "Kanal durumu değiştirildi",
+        "testSent": "Test bildirimi gönderildi",
+        "testFailed": "Test bildirimi gönderilemedi"
+    },
+    "alertRules": {
+        "toggled": "Kural durumu değiştirildi"
+    },
+    "apiKeys": {
+        "revoked": "API anahtarı iptal edildi"
+    },
+    "webhooks": {
+        "serviceNotFound": "Servis bulunamadı",
+        "invalidToken": "Geçersiz webhook tokeni",
+        "disabled": "Bu servis için webhook devre dışı",
+        "apiKeyNotConfigured": "Bu servis için API anahtarı yapılandırılmamış. Servis ayarlarından bir API anahtarı oluşturun.",
+        "apiKeyRequired": "API anahtarı gerekli. Webhook URL'sine ?apiKey=ANAHTARINIZ ekleyin.",
+        "invalidApiKey": "Geçersiz API anahtarı",
+        "captured": "İstek dinleme modunda yakalandı",
+        "duplicateIncident": "Tekrarlayan olay alındı (zaten açık)",
+        "noMatchingIncident": "Çözülmüş webhook alındı ancak eşleşen açık olay bulunamadı",
+        "noTemplate": "Webhook alındı (olay oluşturmak için şablon yapılandırılmamış)",
+        "parseFailed": "Webhook verisi ayrıştırılamadı",
+        "duplicateAlert": "Tekrarlayan alarm — mevcut olay bulundu",
+        "incidentCreated": "Olay oluşturuldu",
+        "processFailed": "Webhook işlenemedi",
+        "templateNotFound": "Şablon bulunamadı",
+        "invalidPayload": "Geçersiz veri veya şablon",
+        "noTitle": "Veriden başlık çıkarılamadı",
+        "processingFailed": "Webhook işlenemedi",
+        "invalidSignature": "Geçersiz webhook imzası"
+    },
+    "captures": {
+        "reviewed": "İncelendi olarak işaretlendi"
+    },
+    "postmortems": {
+        "published": "Postmortem yayınlandı"
+    },
+    "runbooks": {
+        "usageRecorded": "Runbook kullanımı kaydedildi"
+    },
+    "providers": {
+        "templateSaved": "Şablon kaydedildi"
+    },
+    "emailTemplates": {
+        "testSent": "Test e-postası başarıyla gönderildi.",
+        "testFailed": "Test e-postası gönderilemedi. SMTP yapılandırmasını kontrol edin."
+    },
+    "maintenance": {
+        "cancelled": "Bakım penceresi iptal edildi"
+    },
+    "smtp": {
+        "notConfigured": "SMTP ayarları yapılandırılmamış.",
+        "notConfiguredSaveFirst": "SMTP ayarları yapılandırılmamış. Lütfen önce ayarlarınızı kaydedin.",
+        "testPassed": "Bağlantı testi başarılı. SMTP sunucusuna erişilebilir.",
+        "testEmailSubject": "CalluApp - Test E-postası",
+        "passwordDecryptFailed": "Kayıtlı SMTP şifresi çözülemedi. Ayarlardan şifrenizi yeniden girin."
+    },
+    "sms": {
+        "testMessage": "CalluApp test bildirimi — SMS kanalınız doğru çalışıyor.",
+        "phoneNotAvailable": "Yeniden deneme için telefon numarası mevcut değil",
+        "noProvider": "Yeniden deneme için SMS sağlayıcısı yapılandırılmamış"
+    },
+    "voice": {
+        "phoneNotAvailable": "Yeniden deneme için telefon numarası mevcut değil",
+        "noProvider": "Yeniden deneme için sesli arama sağlayıcısı yapılandırılmamış"
+    },
+    "email": {
+        "notConfigured": "E-posta yapılandırılmamış — yalnızca loglandı",
+        "userNotFound": "Kullanıcı veya e-posta bulunamadı",
+        "subjects": {
+            "testEmail": "CalluApp - Test E-postası",
+            "invitation": "CalluApp'a davet edildiniz",
+            "passwordReset": "CalluApp şifrenizi sıfırlayın",
+            "incidentAlert": "Olay Alarmı: {title}"
+        }
+    },
+    "callback": {
+        "invalidApiKey": "Geçersiz senaryo API anahtarı",
+        "tokenInvalid": "Token geçersiz, süresi dolmuş veya zaten kullanılmış",
+        "processFailed": "Geri çağırma işlenemedi",
+        "conferenceFailed": "Konferans odası oluşturulamadı"
+    },
+    "conferenceSms": {
+        "title": "Callu Video Konferans",
+        "incident": "Olay: {title} ({severity})",
+        "join": "Katıl: {link}",
+        "duration": "Süre: {minutes} dk"
+    },
+    "voximplant": {
+        "invalidApiKey": "Geçersiz senaryo API anahtarı",
+        "incidentNotFound": "Olay bulunamadı",
+        "tokenInvalid": "Token geçersiz, süresi dolmuş veya zaten kullanılmış",
+        "callbackFailed": "Geri çağırma işlenemedi",
+        "conferenceRoomFailed": "Konferans odası oluşturulamadı"
+    }
+}

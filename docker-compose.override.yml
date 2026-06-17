@@ -1,0 +1,34 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  CalluApp — Local dev override                             ║
+# ╠══════════════════════════════════════════════════════════════╣
+# ║  Auto-merged by `docker compose up` when present next to   ║
+# ║  docker-compose.yml. Adds build: blocks so the app images  ║
+# ║  can be rebuilt from the local source tree.                ║
+# ║                                                            ║
+# ║  Remote / Portainer deploys do NOT see this file (only     ║
+# ║  docker-compose.yml is uploaded), so they continue to pull ║
+# ║  the published images without needing ./src.               ║
+# ║                                                            ║
+# ║  Rebuild locally:                                          ║
+# ║    docker compose up -d --build                            ║
+# ║                                                            ║
+# ║  Force-skip the override (use published images locally):   ║
+# ║    docker compose -f docker-compose.yml up -d              ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+services:
+
+  callu-api:
+    build:
+      context: ./src
+      dockerfile: Callu.Api/Dockerfile
+
+  callu-worker:
+    build:
+      context: ./src
+      dockerfile: Callu.Worker/Dockerfile
+
+  callu-web:
+    build:
+      context: ./src/Callu.Web
+      dockerfile: Dockerfile

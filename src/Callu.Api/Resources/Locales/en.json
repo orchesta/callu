@@ -1,0 +1,177 @@
+{
+    "auth": {
+        "invalidCredentials": "Invalid email or password",
+        "lockedOut": "Account is locked out. Please try again later.",
+        "emailNotConfirmed": "Email not confirmed",
+        "loginSuccess": "Login successful",
+        "emailAlreadyRegistered": "Email is already registered",
+        "registrationSuccess": "Registration successful",
+        "registrationError": "An error occurred during registration",
+        "invalidRefreshToken": "Invalid refresh token",
+        "tokenReuseDetected": "Token reuse detected. All sessions revoked.",
+        "refreshTokenExpired": "Refresh token expired",
+        "userNotFound": "User not found",
+        "tokenRefreshed": "Token refreshed"
+    },
+    "errors": {
+        "forbidden": "You do not have permission to perform this action.",
+        "unauthorized": "Authentication required.",
+        "invalidParams": "Invalid request parameters.",
+        "cancelled": "Request was cancelled.",
+        "unexpected": "An unexpected error occurred."
+    },
+    "incidents": {
+        "acknowledged": "Incident acknowledged",
+        "resolved": "Incident resolved",
+        "closed": "Incident closed",
+        "reopened": "Incident reopened",
+        "escalated": "Incident escalated",
+        "reassigned": "Incident reassigned"
+    },
+    "setup": {
+        "conflict": "Setup is already in progress. Please wait.",
+        "alreadyConfigured": "System is already configured. Initial setup cannot be run again.",
+        "fieldsRequired": "Email, password, and organization name are required.",
+        "completed": "Initial setup completed successfully.",
+        "unexpectedError": "An unexpected error occurred during setup."
+    },
+    "users": {
+        "invitationSent": "Invitation sent",
+        "roleUpdated": "Role updated",
+        "invitationResent": "Invitation resent",
+        "userUpdated": "User updated"
+    },
+    "teams": {
+        "memberAdded": "Member added",
+        "memberAddFailed": "Failed to add member"
+    },
+    "conference": {
+        "left": "Left conference",
+        "ended": "Conference ended",
+        "invalidToken": "Invalid or expired token",
+        "incidentNotFound": "Incident not found",
+        "invalidParticipantToken": "Invalid participant token",
+        "hasEnded": "Conference has ended",
+        "hasExpired": "Conference has expired",
+        "linkInUse": "This link is already in use by another session"
+    },
+    "profile": {
+        "updated": "Profile updated",
+        "updateFailed": "Failed to update profile",
+        "passwordChanged": "Password changed",
+        "userNotFound": "User not found"
+    },
+    "settings": {
+        "smtpSaved": "Settings saved",
+        "smtpSaveFailed": "Failed to save SMTP settings"
+    },
+    "statusPages": {
+        "subscribed": "Subscribed successfully",
+        "unsubscribed": "Unsubscribed successfully"
+    },
+    "notifications": {
+        "read": "Marked as read",
+        "allRead": "All marked as read"
+    },
+    "channels": {
+        "toggled": "Channel toggled",
+        "testSent": "Test notification sent",
+        "testFailed": "Test notification failed"
+    },
+    "alertRules": {
+        "toggled": "Rule toggled"
+    },
+    "apiKeys": {
+        "revoked": "API key revoked"
+    },
+    "webhooks": {
+        "serviceNotFound": "Service not found",
+        "invalidToken": "Invalid webhook token",
+        "disabled": "Webhook is disabled for this service",
+        "apiKeyNotConfigured": "API key not configured for this service. Generate an API key in the service settings.",
+        "apiKeyRequired": "API key is required. Add ?apiKey=YOUR_KEY to the webhook URL.",
+        "invalidApiKey": "Invalid API key",
+        "captured": "Request captured in listening mode",
+        "duplicateIncident": "Duplicate incident received (already open)",
+        "noMatchingIncident": "Resolved webhook received but no matching open incident found",
+        "noTemplate": "Webhook received (no template configured to create incidents)",
+        "parseFailed": "Failed to parse webhook payload",
+        "duplicateAlert": "Duplicate alert — existing incident found",
+        "incidentCreated": "Incident created",
+        "processFailed": "Failed to process webhook",
+        "templateNotFound": "Template not found",
+        "invalidPayload": "Invalid payload or template",
+        "noTitle": "Could not extract title from payload",
+        "processingFailed": "Failed to process webhook",
+        "invalidSignature": "Invalid webhook signature"
+    },
+    "captures": {
+        "reviewed": "Marked as reviewed"
+    },
+    "postmortems": {
+        "published": "Postmortem published"
+    },
+    "runbooks": {
+        "usageRecorded": "Runbook usage recorded"
+    },
+    "providers": {
+        "templateSaved": "Template saved"
+    },
+    "emailTemplates": {
+        "testSent": "Test email sent successfully.",
+        "testFailed": "Failed to send test email. Check SMTP configuration."
+    },
+    "maintenance": {
+        "cancelled": "Maintenance window cancelled"
+    },
+    "statusPages": {
+        "subscribed": "If the email is valid, a confirmation link has been sent.",
+        "unsubscribed": "You have been unsubscribed.",
+        "subscriptionConfirmed": "Subscription confirmed."
+    },
+    "smtp": {
+        "notConfigured": "SMTP settings are not configured.",
+        "notConfiguredSaveFirst": "SMTP settings are not configured. Please save your settings first.",
+        "testPassed": "Connection test passed. SMTP server is reachable.",
+        "testEmailSubject": "CalluApp - Test Email",
+        "passwordDecryptFailed": "Stored SMTP password could not be decrypted. Re-enter your password in the settings."
+    },
+    "sms": {
+        "testMessage": "CalluApp test notification — your SMS channel is working correctly.",
+        "phoneNotAvailable": "Phone number not available for retry",
+        "noProvider": "No SMS provider configured for retry"
+    },
+    "voice": {
+        "phoneNotAvailable": "Phone number not available for retry",
+        "noProvider": "No voice call provider configured for retry"
+    },
+    "email": {
+        "notConfigured": "Email not configured — logged only",
+        "userNotFound": "User or email not found",
+        "subjects": {
+            "testEmail": "CalluApp - Test Email",
+            "invitation": "You've been invited to CalluApp",
+            "passwordReset": "Reset your CalluApp password",
+            "incidentAlert": "Incident Alert: {title}"
+        }
+    },
+    "callback": {
+        "invalidApiKey": "Invalid scenario API key",
+        "tokenInvalid": "Token invalid, expired, or already consumed",
+        "processFailed": "Failed to process callback",
+        "conferenceFailed": "Failed to create conference room"
+    },
+    "conferenceSms": {
+        "title": "Callu Video Conference",
+        "incident": "Incident: {title} ({severity})",
+        "join": "Join: {link}",
+        "duration": "Duration: {minutes} min"
+    },
+    "voximplant": {
+        "invalidApiKey": "Invalid scenario API key",
+        "incidentNotFound": "Incident not found",
+        "tokenInvalid": "Token invalid, expired, or already consumed",
+        "callbackFailed": "Failed to process callback",
+        "conferenceRoomFailed": "Failed to create conference room"
+    }
+}

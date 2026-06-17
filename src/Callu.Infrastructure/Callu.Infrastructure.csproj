@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="Mapster.DependencyInjection" Version="10.0.7" />
+    <!-- MassTransit 9.x requires a commercial license. Staying on 8.5.x (last MIT line). -->
+    <PackageReference Include="MassTransit" Version="8.5.2" />
+    <PackageReference Include="MassTransit.EntityFrameworkCore" Version="8.5.2" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.2" />
+    <!-- Security override: pin transitive MessagePack above the MassTransit 8.5.x default to clear GHSA-hv8m-jj95-wg3x. -->
+    <PackageReference Include="MessagePack" Version="2.5.301" />
+    <PackageReference Include="MessagePack.Annotations" Version="2.5.301" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.6.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.18.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL.NodaTime" Version="10.0.1" />
+    <!-- Modern Npgsql DataSource and OpenTelemetry -->
+    <PackageReference Include="Npgsql.DependencyInjection" Version="10.0.2" />
+    <PackageReference Include="Npgsql.OpenTelemetry" Version="10.0.2" />
+    <PackageReference Include="NodaTime" Version="3.3.2" />
+    <PackageReference Include="NodaTime.Serialization.SystemTextJson" Version="1.3.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.12.0-beta.2" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Process" Version="1.13.0-beta.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Quartz" Version="1.0.0-beta.3" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
+    <PackageReference Include="Quartz" Version="3.18.1" />
+    <PackageReference Include="Scriban" Version="7.2.0" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Callu.Application\Callu.Application.csproj" />
+    <ProjectReference Include="..\Callu.Domain\Callu.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- Email Templates - Copy to Output -->
+  <ItemGroup>
+    <Content Include="Email\Templates\**\*.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Voximplant VoxEngine Scripts - Embedded Resources -->
+  <ItemGroup>
+    <EmbeddedResource Include="Providers\Voximplant\Scripts\*.js" />
+  </ItemGroup>
+
+</Project>

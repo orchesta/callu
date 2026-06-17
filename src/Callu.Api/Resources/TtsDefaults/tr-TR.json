@@ -1,0 +1,11 @@
+{
+    "incident_message": "{service} servisinden bildirim. {severity_text} durumu tespit edildi. {title}. {description}.",
+    "dtmf_prompt": "Onaylamak için 1'e, yükseltmek için 2'ye, tekrar dinlemek için yıldız'a, video konferans için 999'a basın.",
+    "ack_confirm": "Anlaşıldı. Olay onaylandı. Teşekkür ederiz.",
+    "escalation_confirm": "Anlaşıldı. Yükseltme işlemi başlatıldı.",
+    "invalid_key": "Geçersiz tuş. Lütfen tekrar deneyin.",
+    "conference_wait": "Video konferans hazırlanıyor, lütfen bekleyin.",
+    "conference_success": "Video konferans hazır. Bağlantı linki {count} kişiye gönderildi. Şimdi katılabilirsiniz.",
+    "conference_fail": "Konferans oluşturulamadı. Lütfen daha sonra tekrar deneyin.",
+    "conference_duplicate": "Video konferans zaten talep edildi."
+}

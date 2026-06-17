@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- .NET 10 SDK defaults; explicit 14 for C# 14 (extension members, field keyword, …) -->
+    <LangVersion>14</LangVersion>
+  </PropertyGroup>
+</Project>

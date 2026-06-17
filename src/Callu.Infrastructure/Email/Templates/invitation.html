@@ -1,0 +1,44 @@
+<!-- Invitation Email Content -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+        <td style="font-size: 20px; font-weight: 600; color: #111111; padding-bottom: 16px;">
+            You've been invited to CalluApp!
+        </td>
+    </tr>
+    <tr>
+        <td style="color: #555555; font-size: 16px; line-height: 1.6;">
+            <p style="margin: 0 0 16px 0;">Hi{{#UserName}} <strong>{{UserName}}</strong>{{/UserName}},</p>
+            <p style="margin: 0 0 16px 0;">You've been invited to join your team on CalluApp - the incident alerting and
+                on-call management platform.</p>
+            <p style="margin: 0 0 24px 0;">Click the button below to activate your account and get started:</p>
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="padding: 16px 0;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{InviteLink}}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="14%" strokecolor="#6366f1" fillcolor="#6366f1">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">Accept Invitation</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <a href="{{InviteLink}}"
+                style="display: inline-block; background-color: #6366f1; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600; font-size: 16px; mso-padding-alt: 0;">Accept
+                Invitation</a>
+            <!--<![endif]-->
+        </td>
+    </tr>
+    <tr>
+        <td style="color: #888888; font-size: 14px; padding-top: 16px;">
+            <p style="margin: 0 0 8px 0;">If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="margin: 0; word-break: break-all;"><a href="{{InviteLink}}"
+                    style="color: #6366f1;">{{InviteLink}}</a></p>
+        </td>
+    </tr>
+    <tr>
+        <td
+            style="color: #888888; font-size: 13px; padding-top: 24px; border-top: 1px solid #eeeeee; margin-top: 24px;">
+            <p style="margin: 16px 0 0 0;">This invitation link will expire in 7 days.</p>
+        </td>
+    </tr>
+</table>

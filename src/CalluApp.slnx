@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Callu.Api/Callu.Api.csproj" />
+  <Project Path="Callu.Application/Callu.Application.csproj" />
+  <Project Path="Callu.Domain/Callu.Domain.csproj" />
+  <Project Path="Callu.Infrastructure/Callu.Infrastructure.csproj" />
+  <Project Path="Callu.Shared/Callu.Shared.csproj" />
+  <Project Path="Callu.Tests/Callu.Tests.csproj" />
+  <Project Path="Callu.Worker/Callu.Worker.csproj" />
+</Solution>

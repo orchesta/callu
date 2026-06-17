@@ -1,0 +1,1 @@
+export { CommunicationsHub } from "./hub";

@@ -1,0 +1,11 @@
+{
+    "incident_message": "Alert from {service}. There is a {severity_text} issue. {title}. {description}.",
+    "dtmf_prompt": "Press 1 to acknowledge, 2 to escalate, star to repeat, or 999 for video conference.",
+    "ack_confirm": "Got it. The incident has been acknowledged. Thank you.",
+    "escalation_confirm": "Understood. Escalation has been initiated.",
+    "invalid_key": "Sorry, that key is not valid. Please try again.",
+    "conference_wait": "Setting up a video conference for you. Please hold on.",
+    "conference_success": "Video conference is ready. The link has been sent to {count} people. You may join now.",
+    "conference_fail": "Sorry, we could not create the conference. Please try again later.",
+    "conference_duplicate": "A video conference has already been requested."
+}

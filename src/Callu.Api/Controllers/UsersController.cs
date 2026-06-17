@@ -1,0 +1,72 @@
+using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Callu.Application.Services;
+using Callu.Shared.Localization;
+using Callu.Shared.Results;
+using Callu.Shared.Models.Auth;
+
+namespace Callu.Api.Controllers;
+
+[ApiVersion(1)]
+[ApiController]
+[Route("api/v{version:apiVersion}/users")]
+[Authorize(Policy = Policies.CanManageUsers)]
+public class UsersController(IUserManagementService userService) : ControllerBase
+{
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+    {
+        var users = await userService.GetUsersAsync(ct);
+        return Ok(users);
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(string id, CancellationToken ct)
+    {
+        var user = await userService.GetUserByIdAsync(id, ct);
+        if (user == null) return NotFound();
+        return Ok(user);
+    }
+
+    [HttpPost("invite")]
+    public async Task<IActionResult> Invite([FromBody] InviteUserRequest request, CancellationToken ct)
+    {
+        var (success, error) = await userService.InviteUserAsync(request.Email, request.Role, ct);
+        if (!success) return BadRequest(ApiResponse.Fail(error ?? "Operation failed"));
+        return Ok(new { message = Messages.Get("users.invitationSent") });
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(string id, [FromBody] AdminUpdateUserRequest request, CancellationToken ct)
+    {
+        var success = await userService.UpdateUserAsync(id, request.FirstName, request.LastName, request.PhoneNumber, ct);
+        if (!success) return NotFound();
+        return Ok(new { message = Messages.Get("users.userUpdated") });
+    }
+
+    [HttpPut("{id}/role")]
+    public async Task<IActionResult> ChangeRole(string id, [FromBody] ChangeRoleRequest request, CancellationToken ct)
+    {
+        var success = await userService.ChangeUserRoleAsync(id, request.Role, ct);
+        if (!success) return NotFound();
+        return Ok(new { message = Messages.Get("users.roleUpdated") });
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Remove(string id, CancellationToken ct)
+    {
+        var success = await userService.RemoveUserAsync(id, ct);
+        if (!success) return NotFound();
+        return NoContent();
+    }
+
+    [HttpPost("{id}/resend-invitation")]
+    public async Task<IActionResult> ResendInvitation(string id, CancellationToken ct)
+    {
+        var success = await userService.ResendInvitationAsync(id, ct);
+        if (!success) return NotFound();
+        return Ok(new { message = Messages.Get("users.invitationResent") });
+    }
+}
+
