@@ -35,3 +35,14 @@ export interface AdminUpdateUserRequest {
     lastName?: string;
     phoneNumber?: string;
 }
+
+/** Mirrors BE NotificationPreferencesDto — per-user notification channels + quiet hours */
+export interface NotificationPreferencesDto {
+    emailEnabled: boolean;
+    smsEnabled: boolean;
+    voiceEnabled: boolean;
+    pushEnabled: boolean;
+    quietHoursStart?: string | null;
+    quietHoursEnd?: string | null;
+    timezone?: string | null;
+}

@@ -156,8 +156,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function (e) {
             joinedAt: new Date().toISOString()
         });
 
-        announceJoin(displayName);
-
         // Conference.add forwards both audio and video; sendMediaBetween would drop video.
         // https://voximplant.com/docs/guides/conferences/howto
         try {
@@ -187,8 +185,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function (e) {
 
         participants = participants.filter(function (p) { return p.call !== call; });
 
-        announceLeave(displayName);
-
         notifyBackend("participant_left", {
             participant_id: participantId,
             display_name: displayName,
@@ -207,36 +203,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function (e) {
         }
     });
 });
-
-function playAnnouncement(msg) {
-    if (!conf) return;
-    try {
-        var player = VoxEngine.createTTSPlayer(msg, { voice: resolveVoice() });
-        player.sendMediaTo(conf);
-        player.addEventListener(PlayerEvents.PlaybackFinished, function () {
-            player.stop();
-        });
-    } catch (err) {
-        Logger.write("TTS announce error: " + err);
-    }
-}
-
-function announceJoin(displayName) {
-    if (!conf) return;
-    var msg = confLanguage.startsWith("tr") ?
-        displayName + " konferansa katıldı." :
-        displayName + " has joined the conference.";
-    playAnnouncement(msg);
-}
-
-function announceLeave(displayName) {
-    if (!conf || participants.length === 0) return;
-    var msg = confLanguage.startsWith("tr") ?
-        displayName + " konferanstan ayrıldı." :
-        displayName + " has left the conference.";
-    playAnnouncement(msg);
-}
-
 
 function notifyBackend(status, data) {
     if (!callbackUrl) return;

@@ -146,6 +146,13 @@ export function useAddIncidentUpdate() {
     );
 }
 
+export function useNotifyStatusPageSubscribers() {
+    return useApiMutation(
+        (incidentId: string) => statusPageApi.notifySubscribers(incidentId),
+        { successMessage: 'Subscribers notified' },
+    );
+}
+
 export function useStatusPageStats(pageId: string | undefined) {
     return useQuery(statusPageQueries.stats(pageId));
 }

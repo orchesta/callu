@@ -20,6 +20,12 @@ public interface IStatusPageService
     Task<StatusPageIncidentDto?> CreateIncidentAsync(Guid pageId, CreateStatusIncidentRequest request, CancellationToken cancellationToken = default);
     Task<bool> AddIncidentUpdateAsync(Guid incidentId, AddIncidentUpdateRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Manually emails the status page's confirmed subscribers about an incident's current
+    /// state. Subscriber emails are never sent automatically — only via this explicit trigger.
+    /// </summary>
+    Task<bool> TriggerSubscriberNotificationAsync(Guid incidentId, CancellationToken cancellationToken = default);
+
     Task<StatusPageStatsDto> GetStatsAsync(Guid pageId, CancellationToken cancellationToken = default);
 
     /// <summary>Returns 30-day per-component uptime history for a status page.</summary>

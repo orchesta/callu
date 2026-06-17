@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Callu.Infrastructure.Providers.Voximplant.Models;
 using Microsoft.Extensions.Logging;
@@ -136,23 +134,6 @@ public class VoximplantManagementClient(
     }
     
     /// <summary>
-    /// Raw challenge nonce from Voximplant — not usable on its own. Prefer
-    /// <see cref="PrepareWebSdkLoginHashAsync"/>, which turns it into the hash the Web SDK
-    /// actually expects.
-    /// </summary>
-    public async Task<string?> CreateOneTimeLoginKeyAsync(string fullUserName)
-    {
-        var args = new Dictionary<string, string>
-        {
-            ["user_name"] = fullUserName
-        };
-        var response = await GetAsync<VoxOneTimeKeyResponse>("CreateOneTimeLoginKey", args);
-        return response.Error == null && response.Result?.ValueKind == System.Text.Json.JsonValueKind.String
-            ? response.Result.Value.GetString()
-            : null;
-    }
-
-    /// <summary>
     /// Ensures a Voximplant user exists for a conference participant. Returns user_id,
     /// or null on failure. Password is rotated per-login by <see cref="PrepareWebSdkLoginHashAsync"/>.
     /// </summary>
@@ -168,9 +149,9 @@ public class VoximplantManagementClient(
     }
 
     /// <summary>
-    /// Rotates the user's password to a fresh value, requests a one-time key, and returns
-    /// the login hash the Web SDK's <c>loginWithOneTimeKey</c> expects. The ephemeral
-    /// password is discarded after the hash is computed.
+    /// Rotates the user's password to a fresh ephemeral value and returns it for a single
+    /// Web SDK password login. Voximplant has no server-side one-time-key API, so the Web
+    /// SDK logs in with this password directly; it is discarded after this join.
     /// </summary>
     public async Task<string?> PrepareWebSdkLoginHashAsync(long userId, string fullUserName)
     {
@@ -184,19 +165,7 @@ public class VoximplantManagementClient(
             return null;
         }
 
-        var oneTimeKey = await CreateOneTimeLoginKeyAsync(fullUserName);
-        if (string.IsNullOrEmpty(oneTimeKey))
-            return null;
-
-        var bareUserName = fullUserName.Split('@', 2)[0];
-        var inner = Md5Hex($"{bareUserName}:voximplant.com:{ephemeralPassword}");
-        return Md5Hex($"{oneTimeKey}|{inner}");
-    }
-
-    private static string Md5Hex(string input)
-    {
-        var bytes = MD5.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
+        return ephemeralPassword;
     }
 
     public async Task<VoxAddScenarioResponse> AddScenarioAsync(string scenarioName, string scenarioScript,

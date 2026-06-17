@@ -72,6 +72,10 @@ export const statusPageApi = {
     addUpdate: (incidentId: string, data: AddIncidentUpdateRequest) =>
         apiClient.post<void>(`${BASE}/incidents/${incidentId}/updates`, data),
 
+    /** POST /incidents/{incidentId}/notify-subscribers — manual, explicit subscriber email */
+    notifySubscribers: (incidentId: string) =>
+        apiClient.post<{ message: string }>(`${BASE}/incidents/${incidentId}/notify-subscribers`),
+
     /** GET /{pageId}/stats */
     getStats: (pageId: string) =>
         apiClient.get<StatusPageStatsDto>(`${BASE}/${pageId}/stats`),

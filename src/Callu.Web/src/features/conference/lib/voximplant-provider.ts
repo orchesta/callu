@@ -1,11 +1,31 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- Voximplant SDK event payloads lack precise typings */
 /**
- * Voximplant Web SDK adapter. init → connect → loginWithOneTimeKey(user, hash)
- * → callConference. The login hash is computed server-side; the client never sees
- * the user password. SDK: voximplant-websdk@4.x (classic SDK).
+ * Voximplant Web SDK adapter (v5, modular API).
+ *
+ * Flow: Core.init → registerModules(stream, conference) → client.connect({ node })
+ *   → client.login(user, password) → conferenceManager.createConference → addStream → join.
+ *
+ * The server rotates a short-lived password per join (Voximplant has no server-side
+ * one-time-key API — that flow is client-only), passed here as `loginKey`. The node
+ * (NODE_1…NODE_12) is chosen in the provider form and travels in the join result.
  */
 
-import * as VoxImplant from 'voximplant-websdk';
+import { Core, ConnectionNode } from '@voximplant/websdk';
+import {
+    StreamLoader,
+    streamToken,
+    VideoQuality,
+    type StreamManager,
+    type LocalStream,
+} from '@voximplant/websdk/modules/stream';
+import {
+    ConferenceLoader,
+    conferenceToken,
+    ConferenceEvent,
+    EndpointEvent,
+    type Conference,
+    type ConferenceManager,
+    type Endpoint,
+} from '@voximplant/websdk/modules/conference-manager';
 import type {
     IWebRTCProvider,
     WebRTCCredentials,
@@ -15,12 +35,21 @@ import type {
     WebRTCConnectionState,
 } from './webrtc-provider';
 
-type VoxClient = ReturnType<typeof VoxImplant.getInstance>;
-
 export class VoximplantWebRTCProvider implements IWebRTCProvider {
-    private sdk: VoxClient | null = null;
-    private currentCall: any = null;
-    private credentials: Extract<WebRTCCredentials, { provider: 'voximplant' }> | null = null;
+    private core: Core | null = null;
+    private streamManager: StreamManager | null = null;
+    private conferenceManager: ConferenceManager | null = null;
+    private conference: Conference | null = null;
+
+    private localAudioStream: LocalStream | null = null;
+    private localVideoStream: LocalStream | null = null;
+
+    /** endpointId → display name, so the leave callback can name a participant by id alone */
+    private endpointNames = new Map<string, string>();
+    /** endpointId → aggregate MediaStream collecting that endpoint's audio + video tracks */
+    private remoteMedia = new Map<string, MediaStream>();
+    /** Our own Voximplant user name (local part), used to skip our own endpoint */
+    private localUserName = '';
 
     private participantJoinedCb: ParticipantCallback | null = null;
     private participantLeftCb: ParticipantCallback | null = null;
@@ -33,126 +62,186 @@ export class VoximplantWebRTCProvider implements IWebRTCProvider {
             throw new Error('VoximplantWebRTCProvider only accepts voximplant credentials');
         }
 
-        this.credentials = credentials;
         this.connectionStateCb?.('connecting');
 
+        const fullUsername = credentials.username;
+        this.localUserName = (credentials.username.split('@')[0] ?? '').toLowerCase();
+        const node = ConnectionNode[credentials.node as keyof typeof ConnectionNode];
+        if (!node) {
+            this.connectionStateCb?.('error');
+            throw new Error(`Unknown Voximplant node "${credentials.node}"`);
+        }
+
         try {
-            this.sdk = VoxImplant.getInstance();
+            const core = Core.init({});
+            core.registerModules([StreamLoader(), ConferenceLoader()]);
+            this.core = core;
 
-            if (!this.sdk.alreadyInitialized) {
-                await this.sdk.init({
-                    micRequired: true,
-                    videoConstraints: true,
-                });
-            }
+            const streamModule = await core.getModuleAsync(streamToken);
+            this.streamManager = streamModule.streamManager;
+            this.conferenceManager = await core.getModuleAsync(conferenceToken);
 
-            await this.sdk.connect();
-
-            const fullUsername = `${credentials.username}@${credentials.appName}.${credentials.accountName}.voximplant.com`;
-            await this.sdk.loginWithOneTimeKey(fullUsername, credentials.loginKey);
+            await core.client.connect({ node });
+            await core.client.login({ username: fullUsername, password: credentials.loginKey });
 
             this.connectionStateCb?.('connected');
-        } catch (error) {
+        } catch (error: unknown) {
+            const e = error as { code?: unknown; name?: unknown; message?: unknown };
+            console.error('[VoximplantProvider] connect/login FAILED — code:', e?.code,
+                'name:', e?.name, 'message:', e?.message, '| raw:', error);
             this.connectionStateCb?.('error');
             throw error;
         }
     }
 
     async joinConference(conferenceId: string, contextData?: Record<string, string>): Promise<void> {
-        if (!this.sdk) throw new Error('Not connected');
+        if (!this.conferenceManager || !this.streamManager) throw new Error('Not connected');
 
         const customData = contextData ? JSON.stringify(contextData) : undefined;
 
-        this.currentCall = this.sdk.callConference({
-            number: conferenceId,
-            video: { sendVideo: true, receiveVideo: true },
-            simulcast: true,
+        const conference = this.conferenceManager.createConference({
+            conferenceName: conferenceId,
             ...(customData ? { customData } : {}),
         });
+        this.conference = conference;
 
-        this.currentCall.on(VoxImplant.CallEvents.Connected, () => {
+        conference.addEventListener(ConferenceEvent.Connected, () => {
             this.connectionStateCb?.('connected');
-            void this.currentCall?.sendVideo?.(true)?.catch((err: unknown) => {
-                console.error('[VoximplantProvider] sendVideo after connect failed:', err);
-            });
         });
 
-        const extractStream = (ev: any): MediaStream | undefined =>
-            ev.mediaRenderer?.stream || ev.videoStream?.stream || ev.stream;
-
-        this.currentCall.on(VoxImplant.CallEvents.LocalVideoStreamAdded, (ev: any) => {
-            const stream = extractStream(ev);
-            if (stream) this.localStreamCb?.(stream);
-        });
-
-        this.currentCall.on('LocalVideoAdded', (ev: any) => {
-            const stream = extractStream(ev);
-            if (stream) this.localStreamCb?.(stream);
-        });
-
-        this.currentCall.on(VoxImplant.CallEvents.Disconnected, () => {
+        conference.addEventListener(ConferenceEvent.Disconnected, () => {
             this.connectionStateCb?.('disconnected');
         });
 
-        this.currentCall.on(VoxImplant.CallEvents.Failed, (e: any) => {
-            console.error('[VoximplantProvider] Conference call failed:', e?.code, e?.reason);
+        conference.addEventListener(ConferenceEvent.Failed, (event) => {
+            console.error('[VoximplantProvider] Conference failed:', event.payload);
             this.connectionStateCb?.('error');
         });
 
-        this.currentCall.on(VoxImplant.CallEvents.EndpointAdded, (e: any) => {
-            const endpoint = e.endpoint;
-            const endpointUserPrefix =
-                typeof endpoint.username === 'string' && endpoint.username.includes('@')
-                    ? endpoint.username.split('@', 1)[0]
-                    : endpoint.username;
-            const isLocalEndpoint =
-                endpoint.isDefault === true ||
-                (this.credentials && endpointUserPrefix === this.credentials.username);
+        conference.addEventListener(ConferenceEvent.EndpointAdded, (event) => {
+            const endpoint = conference.endpoints.value.get(event.payload.newEndpointId);
+            if (endpoint) this.handleEndpoint(endpoint);
+        });
 
-            if (!isLocalEndpoint) {
-                this.participantJoinedCb?.({
-                    id: endpoint.id,
-                    displayName: endpoint.displayName || 'Unknown',
-                    isMuted: false,
-                    isCameraOff: false,
-                });
-            }
+        conference.addEventListener(ConferenceEvent.EndpointRemoved, (event) => {
+            const id = event.payload.removedEndpointId;
+            const displayName = this.endpointNames.get(id);
+            this.remoteMedia.delete(id);
+            // Only announce a leave for endpoints we actually surfaced as participants.
+            if (displayName === undefined) return;
+            this.endpointNames.delete(id);
+            this.participantLeftCb?.({ id, displayName, isMuted: false, isCameraOff: false });
+        });
 
-            endpoint.on(VoxImplant.EndpointEvents.RemoteMediaAdded, (ev: any) => {
-                const stream = ev.mediaRenderer?.stream as MediaStream | undefined;
-                if (!stream) return;
-                if (isLocalEndpoint) {
-                    this.localStreamCb?.(stream);
-                } else {
-                    this.remoteStreamCb?.(endpoint.id, stream);
-                }
-            });
+        // Publish local audio + video before joining so the first frame is sent on connect.
+        const audioStream = await this.streamManager.createAudioStream({ audioProcessing: true });
+        this.localAudioStream = audioStream;
+        await conference.addStream(audioStream);
 
-            endpoint.on(VoxImplant.EndpointEvents.Removed, () => {
-                if (isLocalEndpoint) return;
-                this.participantLeftCb?.({
-                    id: endpoint.id,
-                    displayName: endpoint.displayName || 'Unknown',
-                    isMuted: false,
-                    isCameraOff: false,
-                });
-            });
+        const videoStream = await this.streamManager.createVideoStream(VideoQuality.HD);
+        this.localVideoStream = videoStream;
+        await conference.addStream(videoStream);
+        this.localStreamCb?.(videoStream.sourceStream);
+
+        await conference.join();
+    }
+
+    private handleEndpoint(endpoint: Endpoint): void {
+        // Skip our own endpoint (the conference reports it too) and any service
+        // endpoint without a real user (e.g. a TTS announcement player) — only real
+        // remote participants get a tile.
+        const userName = (endpoint.userName || '').toLowerCase();
+        const isSelf = endpoint.id === this.conference?.endpointId.value || userName === this.localUserName;
+        if (isSelf || !userName) return;
+
+        // Dedup: an endpoint may be reported more than once.
+        if (this.endpointNames.has(endpoint.id)) return;
+
+        const displayName = endpoint.displayName || endpoint.userName || 'Unknown';
+        this.endpointNames.set(endpoint.id, displayName);
+
+        this.participantJoinedCb?.({
+            id: endpoint.id,
+            displayName,
+            isMuted: endpoint.isMicrophoneMuted.value,
+            isCameraOff: false,
+        });
+
+        // Streams already attached when the endpoint appears.
+        for (const stream of endpoint.streams.values()) {
+            this.attachRemoteTrack(endpoint.id, stream.sourceStream);
+        }
+
+        endpoint.addEventListener(EndpointEvent.RemoteMediaAdded, (event) => {
+            this.attachRemoteTrack(endpoint.id, event.payload.stream.sourceStream);
         });
     }
 
-    async leaveConference(): Promise<void> {
-        if (this.currentCall) {
-            this.currentCall.hangup();
-            this.currentCall = null;
+    /**
+     * A Voximplant endpoint exposes audio and video as separate streams; collect their
+     * tracks into one MediaStream per endpoint so the tile renders video and plays audio
+     * together (emitting each stream separately would overwrite the previous one).
+     */
+    private attachRemoteTrack(endpointId: string, source: MediaStream): void {
+        let aggregate = this.remoteMedia.get(endpointId);
+        if (!aggregate) {
+            aggregate = new MediaStream();
+            this.remoteMedia.set(endpointId, aggregate);
         }
+        for (const track of source.getTracks()) {
+            if (!aggregate.getTracks().some((t) => t.id === track.id)) {
+                aggregate.addTrack(track);
+            }
+        }
+        this.remoteStreamCb?.(endpointId, aggregate);
+    }
+
+    async leaveConference(): Promise<void> {
+        if (this.conference) {
+            try { this.conference.hangup(); } catch { /* empty */ }
+            this.conference = null;
+        }
+        this.closeLocalStreams();
+        this.endpointNames.clear();
+        this.remoteMedia.clear();
     }
 
     toggleMic(enabled: boolean): void {
-        this.currentCall?.sendAudio?.(enabled);
+        if (!this.conference) return;
+        if (enabled) this.conference.unmuteMicrophone();
+        else this.conference.muteMicrophone();
     }
 
     toggleCamera(enabled: boolean): void {
-        this.currentCall?.sendVideo?.(enabled);
+        void this.setCamera(enabled);
+    }
+
+    private async setCamera(enabled: boolean): Promise<void> {
+        if (!this.conference || !this.streamManager) return;
+
+        if (enabled) {
+            if (this.localVideoStream) return;
+            const videoStream = await this.streamManager.createVideoStream(VideoQuality.HD);
+            this.localVideoStream = videoStream;
+            await this.conference.addStream(videoStream);
+            this.localStreamCb?.(videoStream.sourceStream);
+        } else {
+            const videoStream = this.localVideoStream;
+            if (!videoStream) return;
+            this.localVideoStream = null;
+            try { await this.conference.removeStream(videoStream); } catch { /* empty */ }
+            videoStream.close();
+        }
+    }
+
+    private closeLocalStreams(): void {
+        for (const stream of [this.localAudioStream, this.localVideoStream]) {
+            if (stream) {
+                try { stream.close(); } catch { /* empty */ }
+            }
+        }
+        this.localAudioStream = null;
+        this.localVideoStream = null;
     }
 
     onParticipantJoined(cb: ParticipantCallback): void {
@@ -176,15 +265,21 @@ export class VoximplantWebRTCProvider implements IWebRTCProvider {
     }
 
     dispose(): void {
-        if (this.currentCall) {
-            try { this.currentCall.hangup(); } catch { /* empty */ }
-            this.currentCall = null;
+        if (this.conference) {
+            try { this.conference.hangup(); } catch { /* empty */ }
+            this.conference = null;
         }
 
-        if (this.sdk) {
-            try { this.sdk.disconnect(); } catch { /* empty */ }
-            this.sdk = null;
+        this.closeLocalStreams();
+        this.endpointNames.clear();
+        this.remoteMedia.clear();
+
+        if (this.core) {
+            try { void this.core.client.disconnect(); } catch { /* empty */ }
+            this.core = null;
         }
+        this.streamManager = null;
+        this.conferenceManager = null;
 
         this.participantJoinedCb = null;
         this.participantLeftCb = null;

@@ -9,7 +9,7 @@ import type { JoinResultDto } from '../types/conference.types';
 
 /** Discriminated union — backend decides which provider via JoinResultDto fields */
 export type WebRTCCredentials =
-    | { provider: 'voximplant'; loginKey: string; appName: string; accountName: string; username: string }
+    | { provider: 'voximplant'; loginKey: string; appName: string; accountName: string; username: string; node: string }
     | { provider: 'twilio'; accessToken: string; roomName: string };
 
 export interface WebRTCParticipant {
@@ -58,13 +58,14 @@ export interface IWebRTCProvider {
 
 /** Extract credentials from JoinResultDto — auto-detect provider */
 export function extractCredentials(joinResult: JoinResultDto): WebRTCCredentials | null {
-    if (joinResult.voximplantLoginKey && joinResult.voximplantAppName && joinResult.voximplantAccountName && joinResult.voximplantUsername) {
+    if (joinResult.voximplantLoginKey && joinResult.voximplantAppName && joinResult.voximplantAccountName && joinResult.voximplantUsername && joinResult.voximplantNode) {
         return {
             provider: 'voximplant',
             loginKey: joinResult.voximplantLoginKey,
             appName: joinResult.voximplantAppName,
             accountName: joinResult.voximplantAccountName,
             username: joinResult.voximplantUsername,
+            node: joinResult.voximplantNode,
         };
     }
 

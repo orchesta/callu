@@ -302,6 +302,7 @@ public class VideoConferenceService(
             string? appName = null;
             string? accountName = null;
             string? voximplantUsername = null;
+            string? node = null;
 
             try
             {
@@ -315,11 +316,15 @@ public class VideoConferenceService(
                     {
                         var client = voxProvider.CreateManagementClient(logger);
 
-                        var userId = await client.EnsureConferenceUserAsync(
-                            applicationId.Value, participant.ParticipantToken, participant.DisplayName);
+                        var voxUsername = !string.IsNullOrEmpty(participant.UserId)
+                            ? VoximplantUserNaming.Sanitize(participant.UserId)
+                            : participant.ParticipantToken;
 
-                        voximplantUsername = participant.ParticipantToken;
-                        var fullUserName = $"{participant.ParticipantToken}@{config.ApplicationName}.{config.AccountName}.voximplant.com";
+                        var userId = await client.EnsureConferenceUserAsync(
+                            applicationId.Value, voxUsername, participant.DisplayName);
+
+                        var fullUserName = $"{voxUsername}@{config.ApplicationName}";
+                        voximplantUsername = fullUserName;
 
                         if (userId.HasValue)
                         {
@@ -327,6 +332,7 @@ public class VideoConferenceService(
                         }
                         appName = config.ApplicationName;
                         accountName = config.AccountName;
+                        node = config.Node;
 
                         if (!string.IsNullOrEmpty(loginKey))
                         {
@@ -380,6 +386,7 @@ public class VideoConferenceService(
                 VoximplantAppName = appName,
                 VoximplantAccountName = accountName,
                 VoximplantUsername = voximplantUsername,
+                VoximplantNode = node,
                 DisplayName = participant.DisplayName
             };
         }, ct);
@@ -390,7 +397,6 @@ public class VideoConferenceService(
         await transactionManager.ExecuteInTransactionAsync(async () =>
         {
             var participant = await participantRepo.GetQueryable()
-                .Include(p => p.ConferenceRoom)
                 .FirstOrDefaultAsync(p => p.ParticipantToken == participantToken, ct);
 
             if (participant == null) return;
@@ -402,16 +408,10 @@ public class VideoConferenceService(
             logger.LogInformation("Participant {DisplayName} left conference {RoomId}",
                 participant.DisplayName, participant.ConferenceRoomId);
 
-            var activeCount = await participantRepo.CountAsync(
-                p => p.ConferenceRoomId == participant.ConferenceRoomId && p.IsActive, ct);
-
-            if (activeCount == 0 && participant.ConferenceRoom.Status == ConferenceRoomStatus.Active)
-            {
-                logger.LogInformation("Conference {RoomId} is empty — auto-ending", participant.ConferenceRoomId);
-                participant.ConferenceRoom.Status = ConferenceRoomStatus.Ended;
-                participant.ConferenceRoom.EndedAt = DateTime.UtcNow;
-                roomRepo.Update(participant.ConferenceRoom);
-            }
+            // The room is intentionally NOT ended when it becomes empty — a page refresh
+            // leaves and rejoins within seconds, and ending here would invalidate the link
+            // ("conference has ended"). The room closes via ExpiresAt (expiry job), an
+            // explicit end, or incident resolution.
         }, ct);
     }
 

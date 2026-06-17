@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Logging;
 using Mapster;
 using Callu.Application.Common.Interfaces.Persistence;
+using Callu.Application.Messaging;
 using Callu.Application.Services;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Domain.Entities;
@@ -27,6 +28,7 @@ public class StatusPageService(
     IEmailService emailService,
     IOrganizationSettingsService organizationSettingsService,
     HybridCache cache,
+    IStatusPageSubscriberNotifier subscriberNotifier,
     ILogger<StatusPageService> logger) : IStatusPageService
 {
     private static readonly HybridCacheEntryOptions UptimeCacheOptions = new()
@@ -169,16 +171,24 @@ public class StatusPageService(
         if (dto != null)
             await InvalidateUptimeCacheAsync(pageId, cancellationToken);
 
-        if (dto != null && page.AllowSubscriptions)
-            _ = NotifySubscribersAsync(page, dto.Title, request.Status, isNew: true, CancellationToken.None);
-
         return dto;
+    }
+
+    public async Task<bool> TriggerSubscriberNotificationAsync(Guid incidentId, CancellationToken cancellationToken = default)
+    {
+        var incident = await incidentRepo.FindSingleAsync(i => i.Id == incidentId && !i.IsDeleted, cancellationToken);
+        if (incident == null) return false;
+
+        var page = await statusPageRepo.FindSingleAsync(p => p.Id == incident.StatusPageId && !p.IsDeleted, cancellationToken);
+        if (page == null || !page.AllowSubscriptions) return false;
+
+        await subscriberNotifier.NotifyAsync(incidentId, cancellationToken);
+        return true;
     }
 
     public async Task<bool> AddIncidentUpdateAsync(Guid incidentId, AddIncidentUpdateRequest request, CancellationToken cancellationToken = default)
     {
-        StatusPageIncident? incidentSnapshot = null;
-        StatusPage? pageSnapshot = null;
+        Guid? pageId = null;
 
         var success = await transactionManager.ExecuteInTransactionAsync(async () =>
         {
@@ -196,16 +206,12 @@ public class StatusPageService(
 
             await incidentUpdateRepo.AddAsync(update, cancellationToken);
 
-            incidentSnapshot = incident;
-            pageSnapshot = await statusPageRepo.FindSingleAsync(p => p.Id == incident.StatusPageId && !p.IsDeleted, cancellationToken);
+            pageId = incident.StatusPageId;
             return true;
         }, cancellationToken);
 
-        if (success && pageSnapshot is not null)
-            await InvalidateUptimeCacheAsync(pageSnapshot.Id, cancellationToken);
-
-        if (success && incidentSnapshot != null && pageSnapshot?.AllowSubscriptions == true)
-            _ = NotifySubscribersAsync(pageSnapshot, incidentSnapshot.Title, request.Status, isNew: false, CancellationToken.None);
+        if (success && pageId is { } id)
+            await InvalidateUptimeCacheAsync(id, cancellationToken);
 
         return success;
     }
@@ -637,69 +643,4 @@ public class StatusPageService(
         };
     }
 
-    /// <summary>
-    /// Sends incident notification emails to all confirmed subscribers of a status page.
-    /// Called fire-and-forget — errors are logged but don't affect the incident transaction.
-    /// </summary>
-    private async Task NotifySubscribersAsync(
-        StatusPage page,
-        string incidentTitle,
-        string incidentStatus,
-        bool isNew,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var subscribers = await subscriberRepo.GetQueryable()
-                .Where(s => s.StatusPageId == page.Id && !s.IsDeleted && s.IsConfirmed)
-                .Select(s => s.Email)
-                .ToListAsync(cancellationToken);
-
-            if (subscribers.Count == 0) return;
-
-            var statusLabel = incidentStatus switch
-            {
-                "investigating" => "Investigating",
-                "identified"    => "Identified",
-                "monitoring"    => "Monitoring",
-                "resolved"      => "Resolved",
-                _               => incidentStatus
-            };
-
-            var subject = isNew
-                ? $"[{page.Name}] New Incident: {incidentTitle}"
-                : $"[{page.Name}] Incident Update: {incidentTitle} — {statusLabel}";
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"<div style=\"font-family:sans-serif;max-width:600px;margin:0 auto;\">");
-            sb.AppendLine($"  <h2 style=\"color:#1E293B;\">{page.Name} — Status Update</h2>");
-            sb.AppendLine($"  <p style=\"font-size:1rem;color:#334155;\">");
-            if (isNew)
-                sb.AppendLine($"    A new incident has been reported on the status page.");
-            else
-                sb.AppendLine($"    An incident has been updated.");
-            sb.AppendLine($"  </p>");
-            sb.AppendLine($"  <div style=\"border-left:4px solid #3E7BFA;padding:12px 16px;background:#F8FAFC;border-radius:4px;\">");
-            sb.AppendLine($"    <strong style=\"font-size:1.05rem;\">{incidentTitle}</strong><br/>");
-            sb.AppendLine($"    <span style=\"color:#64748B;font-size:0.9rem;\">Status: {statusLabel}</span>");
-            sb.AppendLine($"  </div>");
-            sb.AppendLine($"  <p style=\"margin-top:24px;font-size:0.85rem;color:#94A3B8;\">");
-            sb.AppendLine($"    You are receiving this email because you subscribed to status updates for <strong>{page.Name}</strong>.");
-            sb.AppendLine($"  </p>");
-            sb.AppendLine($"</div>");
-
-            var html = sb.ToString();
-
-            var tasks = subscribers.Select(email =>
-                emailService.SendAsync(email, subject, html, cancellationToken));
-
-            await Task.WhenAll(tasks);
-            logger.LogInformation("[STATUS-PAGE] Notified {Count} subscribers for page {PageId} — incident: {Title}",
-                subscribers.Count, page.Id, incidentTitle);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[STATUS-PAGE] Failed to notify subscribers for page {PageId}", page.Id);
-        }
-    }
 }

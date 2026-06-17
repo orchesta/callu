@@ -30,6 +30,7 @@ export interface CommunicationProviderDto {
 
     voximplantAccountId?: string;
     voximplantApiKey?: string;
+    voximplantNode?: string;
 
     verimorUsername?: string;
     verimorPassword?: string;

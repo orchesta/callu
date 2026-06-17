@@ -66,11 +66,15 @@ type HeaderRow = { key: string; value: string };
 
 const labelStyle = { fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem", display: "block" } as const;
 
+/** Voximplant data-center nodes the account may live on (Web SDK ConnectionNode). */
+const VOXIMPLANT_NODES = Array.from({ length: 12 }, (_, i) => `NODE_${i + 1}`);
+
 const emptyFormData = {
     name: "",
     providerType: "voximplant" as string,
     voximplantAccountId: "",
     voximplantApiKey: "",
+    voximplantNode: "",
     verimorUsername: "",
     verimorPassword: "",
     verimorSenderId: "",
@@ -128,6 +132,7 @@ export function ProviderSection({
             providerType: provider.providerType,
             voximplantAccountId: provider.voximplantAccountId || "",
             voximplantApiKey: provider.voximplantApiKey || "",
+            voximplantNode: provider.voximplantNode || "",
             verimorUsername: provider.verimorUsername || "",
             verimorPassword: provider.verimorPassword || "",
             verimorSenderId: provider.verimorSenderId || "",
@@ -167,6 +172,7 @@ export function ProviderSection({
             if (formData.providerType === "voximplant") {
                 if (formData.voximplantAccountId) config.accountId = formData.voximplantAccountId;
                 if (formData.voximplantApiKey) config.apiKey = formData.voximplantApiKey;
+                if (formData.voximplantNode) config.node = formData.voximplantNode;
 
             } else if (formData.providerType === "verimor") {
                 if (formData.verimorUsername) config.apiUsername = formData.verimorUsername;
@@ -507,6 +513,30 @@ export function ProviderSection({
                                             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label style={labelStyle}>
+                                        {t("providers.voximplantNode")}
+                                    </label>
+                                    <Select
+                                        value={formData.voximplantNode}
+                                        onValueChange={(value) => setFormData({ ...formData, voximplantNode: value })}
+                                    >
+                                        <SelectTrigger className="bg-input-background">
+                                            <SelectValue placeholder={t("providers.voximplantNodePlaceholder")} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {VOXIMPLANT_NODES.map((node) => (
+                                                <SelectItem key={node} value={node}>
+                                                    {node}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p style={{ fontSize: "0.75rem", color: "#94A3B8", marginTop: "0.375rem" }}>
+                                        {t("providers.voximplantNodeHelp")}
+                                    </p>
                                 </div>
 
                                 <div className="p-4 rounded-lg bg-brand-500/5 border border-brand-500/20 flex gap-3">

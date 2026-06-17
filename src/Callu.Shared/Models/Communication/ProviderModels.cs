@@ -21,6 +21,7 @@ public record CommunicationProviderDto
 
     public string? VoximplantAccountId { get; init; }
     public string? VoximplantApiKey { get; init; }
+    public string? VoximplantNode { get; init; }
 
     public long? VoximplantApplicationId { get; init; }
     public string? VoximplantApplicationName { get; init; }

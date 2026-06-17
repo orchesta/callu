@@ -65,7 +65,9 @@ export function useWebRTC(): UseWebRTCReturn {
             providerRef.current = provider;
 
             provider.onConnectionStateChange((state) => setConnectionState(state));
-            provider.onParticipantJoined((p) => setParticipants((prev) => [...prev, p]));
+            provider.onParticipantJoined((p) =>
+                setParticipants((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p])),
+            );
             provider.onParticipantLeft((p) => {
                 setParticipants((prev) => prev.filter((x) => x.id !== p.id));
                 setRemoteStreams((prev) => {

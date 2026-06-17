@@ -12,6 +12,7 @@ public class JoinResultDto
     public string? VoximplantAppName { get; set; }
     public string? VoximplantAccountName { get; set; }
     public string? VoximplantUsername { get; set; }
+    public string? VoximplantNode { get; set; }
 
     public string? TwilioAccessToken { get; set; }
     public string? TwilioRoomName { get; set; }
