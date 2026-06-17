@@ -30,13 +30,20 @@ public static class CalluMessagingRegistration
         if (!enabled)
         {
             services.AddScoped<IEscalationWorkflowSignal, DirectEscalationWorkflowSignal>();
+            services.AddScoped<IStatusPageSubscriberNotifier, DirectStatusPageSubscriberNotifier>();
             return services;
         }
 
         if (role == CalluMessagingHostRole.ApiPublisher)
+        {
             services.AddScoped<IEscalationWorkflowSignal, MassTransitEscalationWorkflowSignal>();
+            services.AddScoped<IStatusPageSubscriberNotifier, MassTransitStatusPageSubscriberNotifier>();
+        }
         else
+        {
             services.AddScoped<IEscalationWorkflowSignal, DirectEscalationWorkflowSignal>();
+            services.AddScoped<IStatusPageSubscriberNotifier, DirectStatusPageSubscriberNotifier>();
+        }
 
         services.AddMassTransit(bus =>
         {
@@ -73,6 +80,7 @@ public static class CalluMessagingRegistration
                 });
 
                 bus.AddConsumer<TriggerIncidentEscalationConsumer>();
+                bus.AddConsumer<NotifyStatusPageSubscribersConsumer>();
             }
 
             bus.UsingRabbitMq((context, cfg) =>

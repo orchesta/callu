@@ -67,6 +67,9 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
         {
             var (client, config) = await CreateClientAsync(providerId, cancellationToken);
 
+            var accountResponse = await client.GetAccountInfoAsync();
+            var accountName = accountResponse.IsSuccess ? accountResponse.AccountInfo?.AccountName ?? string.Empty : string.Empty;
+
             var apps = await client.GetApplicationsAsync();
             ThrowIfError(apps);
             
@@ -74,9 +77,11 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
                 a.ApplicationName.StartsWith(CalluAppName, StringComparison.OrdinalIgnoreCase));
             
             long applicationId;
+            string applicationName;
             if (calluApp != null)
             {
                 applicationId = calluApp.ApplicationId;
+                applicationName = calluApp.ApplicationName;
                 existing.Add($"Application: {calluApp.ApplicationName}");
             }
             else
@@ -84,6 +89,7 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
                 var addAppResponse = await client.AddApplicationAsync(CalluAppName);
                 ThrowIfError(addAppResponse);
                 applicationId = addAppResponse.ApplicationId;
+                applicationName = addAppResponse.ApplicationName ?? CalluAppName;
                 created.Add($"Application: {CalluAppName}");
             }
 
@@ -103,11 +109,13 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
             var rules = await client.GetRulesAsync(applicationId);
             ThrowIfError(rules);
             
+            // Patterns must not overlap: inbound Web SDK conference joins dial "callu-<id>" and
+            // must reach the conference rule, not the incident rule (both run outbound by rule_id).
             long incidentRuleId = await EnsureRule(client, rules.Result,
-                "incident-call-rule", ".*", false, new[] { incidentScenarioId }, applicationId, created, existing);
-            
+                "incident-call-rule", "[0-9+]+", false, new[] { incidentScenarioId }, applicationId, created, existing);
+
             long conferenceRuleId = await EnsureRule(client, rules.Result,
-                "conference-rule", ".*", true, new[] { conferenceScenarioId }, applicationId, created, existing);
+                "conference-rule", "callu-.*", true, new[] { conferenceScenarioId }, applicationId, created, existing);
 
             var users = await client.GetUsersAsync(applicationId);
             ThrowIfError(users);
@@ -130,6 +138,8 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
                 created.Add($"User: {SystemUserName}");
             }
 
+            config.ApplicationName = applicationName;
+            config.AccountName = accountName;
             await SaveProvisioningConfig(providerId, config, new ProvisioningConfig
             {
                 ApplicationId = applicationId,
@@ -448,20 +458,28 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
 
         if (rule != null)
         {
-            if (rule.VideoConference != videoConference)
+            var needsPattern = rule.RulePattern != pattern;
+            var needsVideo = rule.VideoConference != videoConference;
+
+            if (needsPattern || needsVideo)
             {
-                var patchResponse = await client.SetRuleInfoAsync(rule.RuleId, videoConference: videoConference);
+                var patchResponse = await client.SetRuleInfoAsync(
+                    rule.RuleId,
+                    pattern: needsPattern ? pattern : null,
+                    videoConference: needsVideo ? videoConference : null);
                 if (patchResponse.Error != null)
                 {
                     _logger.LogWarning(
-                        "Failed to reconcile video_conference flag on rule {Rule}: {Err}. Video conferences may fail until this is corrected manually.",
+                        "Failed to reconcile rule {Rule} (pattern/video_conference): {Err}. Video conferences may fail until this is corrected manually.",
                         name, patchResponse.Error.Msg);
                 }
                 else
                 {
-                    _logger.LogInformation("Reconciled video_conference={Flag} on rule {Rule}", videoConference, name);
+                    _logger.LogInformation(
+                        "Reconciled rule {Rule}: pattern='{Pattern}', video_conference={Flag}",
+                        name, pattern, videoConference);
                 }
-                existing.Add($"Rule: {name} (flag updated → video_conference={videoConference})");
+                existing.Add($"Rule: {name} (reconciled → pattern='{pattern}', video_conference={videoConference})");
             }
             else
             {
@@ -562,20 +580,7 @@ public class VoximplantProviderLifecycle : ICommunicationProviderLifecycle
             throw new InvalidOperationException($"Voximplant API error [{response.Error.Code}]: {response.Error.Msg}");
     }
     
-    private static string SanitizeUsername(string userId)
-    {
-        var sanitized = userId.ToLowerInvariant()
-            .Replace("@", "-at-")
-            .Replace(".", "-");
-
-        if (sanitized.Length > 0 && !char.IsLetterOrDigit(sanitized[0]))
-            sanitized = "u" + sanitized;
-
-        if (sanitized.Length > 50)
-            sanitized = sanitized[..50];
-
-        return sanitized;
-    }
+    private static string SanitizeUsername(string userId) => VoximplantUserNaming.Sanitize(userId);
     
     private static string GenerateSecurePassword()
     {

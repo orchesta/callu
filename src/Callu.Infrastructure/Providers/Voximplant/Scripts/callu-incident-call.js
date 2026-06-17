@@ -163,12 +163,13 @@ function playSSML(call, text, options, onComplete) {
             return;
         }
         var seg = segments[index++];
-        var player = call.say(seg.text, { voice: seg.voice });
+        var player = VoxEngine.createTTSPlayer(seg.text, { voice: seg.voice });
         _currentPlayer = player;
         player.addEventListener(PlayerEvents.PlaybackFinished, function handler() {
             player.removeEventListener(PlayerEvents.PlaybackFinished, handler);
             playNext();
         });
+        player.sendMediaTo(call);
     }
 
     playNext();

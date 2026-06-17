@@ -250,6 +250,7 @@ public class CommunicationProviderService : ICommunicationProviderService
                 return dto with
                 {
                     VoximplantAccountId = TryGetString(cfg, "accountId"),
+                    VoximplantNode = TryGetString(cfg, "node"),
                     VoximplantApplicationId = TryGetLong(cfg, "provisionedApplicationId"),
                     VoximplantApplicationName = TryGetString(cfg, "provisionedApplicationName"),
                     VoximplantScenarioId = TryGetLong(cfg, "provisionedScenarioId"),

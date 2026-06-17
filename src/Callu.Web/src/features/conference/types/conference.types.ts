@@ -40,6 +40,7 @@ export interface JoinResultDto {
     voximplantAppName?: string;
     voximplantAccountName?: string;
     voximplantUsername?: string;
+    voximplantNode?: string;
 
     twilioAccessToken?: string;
     twilioRoomName?: string;

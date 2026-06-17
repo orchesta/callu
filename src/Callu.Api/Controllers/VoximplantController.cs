@@ -16,7 +16,8 @@ namespace Callu.Api.Controllers;
 [Authorize(Policy = Policies.CanManageIntegrations)]
 public class VoximplantController(
     IVoximplantManagementService voxService,
-    IEnumerable<ICommunicationProviderLifecycle> lifecycles) : ControllerBase
+    IEnumerable<ICommunicationProviderLifecycle> lifecycles,
+    ICommunicationProviderRegistry providerRegistry) : ControllerBase
 {
     private ICommunicationProviderLifecycle GetVoximplantLifecycle() =>
         lifecycles.First(l => l.ProviderType.Equals("voximplant", StringComparison.OrdinalIgnoreCase));
@@ -103,6 +104,10 @@ public class VoximplantController(
     {
         var lifecycle = GetVoximplantLifecycle();
         var result = await lifecycle.ProvisionAsync(providerId, ct);
+
+        if (result.Success)
+            await providerRegistry.ReloadProvidersAsync(ct);
+
         return Ok(result);
     }
 

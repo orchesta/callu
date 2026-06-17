@@ -16,6 +16,7 @@ internal class VoximplantConfigWithProvisioning
     public string ApiKey { get; set; } = string.Empty;
     public string ApplicationName { get; set; } = string.Empty;
     public string AccountName { get; set; } = string.Empty;
+    public string Node { get; set; } = string.Empty;
 
     [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public long? IncidentCallRuleId { get; set; }

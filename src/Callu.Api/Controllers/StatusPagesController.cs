@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Callu.Application.Services;
 using Callu.Shared.Localization;
 using Callu.Shared.Models.StatusPages;
+using Callu.Shared.Results;
 
 namespace Callu.Api.Controllers;
 
@@ -124,6 +125,15 @@ public class StatusPagesController(
         var success = await statusPageService.AddIncidentUpdateAsync(incidentId, request, ct);
         if (!success) return NotFound();
         return NoContent();
+    }
+
+    [HttpPost("incidents/{incidentId:guid}/notify-subscribers")]
+    public async Task<IActionResult> NotifySubscribers(Guid incidentId, CancellationToken ct)
+    {
+        var success = await statusPageService.TriggerSubscriberNotificationAsync(incidentId, ct);
+        if (!success)
+            return BadRequest(ApiResponse.Fail("Subscriber notifications are unavailable — the incident no longer exists or subscriptions are off for this page."));
+        return Ok(new { message = "Subscribers notified" });
     }
 
     [HttpGet("{pageId:guid}/stats")]

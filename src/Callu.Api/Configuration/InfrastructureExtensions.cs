@@ -66,6 +66,8 @@ public static class InfrastructureExtensions
 
         if (builder.Configuration.GetValue("Callu:EnableBackgroundServices", true))
             services.AddCalluBackgroundServices();
+        else
+            services.AddCalluProviderRegistryInitializerHosted();
 
         var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
         var dpBuilder = services.AddDataProtection()

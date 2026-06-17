@@ -3,7 +3,13 @@
  */
 
 import { apiClient } from '@/shared/api';
-import type { UserDto, InviteUserRequest, ChangeRoleRequest, AdminUpdateUserRequest } from '../types/user.types';
+import type {
+    UserDto,
+    InviteUserRequest,
+    ChangeRoleRequest,
+    AdminUpdateUserRequest,
+    NotificationPreferencesDto,
+} from '../types/user.types';
 
 const BASE = '/api/v1/users';
 
@@ -35,4 +41,12 @@ export const usersApi = {
     /** Resend invitation email */
     resendInvitation: (id: string) =>
         apiClient.post<{ message: string }>(`${BASE}/${id}/resend-invitation`),
+
+    /** Admin: get a user's notification preferences */
+    getNotificationPreferences: (id: string) =>
+        apiClient.get<NotificationPreferencesDto>(`${BASE}/${id}/notification-preferences`),
+
+    /** Admin: update a user's notification preferences */
+    updateNotificationPreferences: (id: string, data: NotificationPreferencesDto) =>
+        apiClient.put<{ message: string }>(`${BASE}/${id}/notification-preferences`, data),
 };

@@ -1,24 +1,25 @@
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  CalluApp — Docker Compose (deploy / prod)                 ║
+# ║  CalluApp — Docker Compose (deploy / prod)                   ║
 # ╠══════════════════════════════════════════════════════════════╣
-# ║  This file uses published images from Docker Hub only —    ║
-# ║  no build context required. Suitable for Portainer, remote ║
-# ║  hosts, or any environment that pulls this compose file    ║
-# ║  without the source tree.                                  ║
-# ║                                                            ║
-# ║  Quick Start:                                              ║
-# ║    1. cp .env.example .env — set POSTGRES_PASSWORD, JWT_SECRET_KEY, RABBITMQ_PASS ║
-# ║    2. docker compose up -d                                 ║
-# ║    3. Open http://localhost:3000                            ║
-# ║                                                            ║
-# ║  Local development from source?                            ║
-# ║    docker-compose.override.yml adds build: blocks and is   ║
-# ║    auto-merged by `docker compose up`. Run builds with     ║
-# ║      docker compose up -d --build                          ║
-# ║                                                            ║
-# ║  Using your own PostgreSQL?                                ║
-# ║    1. Edit .env → set DB_HOST to your server               ║
-# ║    2. docker compose up -d api web                         ║
+# ║  This file uses published images from Docker Hub only —      ║
+# ║  no build context required. Suitable for Portainer, remote   ║
+# ║  hosts, or any environment that pulls this compose file      ║
+# ║  without the source tree.                                    ║
+# ║                                                              ║
+# ║  Quick Start:                                                ║
+# ║    1. cp .env.example .env — set POSTGRES_PASSWORD,          ║
+# ║        JWT_SECRET_KEY, RABBITMQ_PASS                         ║
+# ║    2. docker compose up -d                                   ║
+# ║    3. Open http://localhost:3000                             ║
+# ║                                                              ║
+# ║  Local development from source?                              ║
+# ║    docker-compose.override.yml adds build: blocks and is     ║
+# ║    auto-merged by `docker compose up`. Run builds with       ║
+# ║      docker compose up -d --build                            ║
+# ║                                                              ║
+# ║  Using your own PostgreSQL?                                  ║
+# ║    1. Edit .env → set DB_HOST to your server                 ║
+# ║    2. docker compose up -d api web                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 services:
@@ -101,7 +102,7 @@ services:
   # NOT exposed to host — only accessible via nginx (web).
   # Background jobs run in callu-worker; set Callu__EnableBackgroundServices=true on API to run them in-process instead.
   callu-api:
-    image: orchestalabs/callu-api:1.0.0
+    image: orchestalabs/callu-api:1.2.0
     container_name: callu-api
     restart: unless-stopped
     # No 'ports:' — API is internal only, nginx proxies /api/* to it
@@ -142,7 +143,7 @@ services:
 
   # ─── Background worker (escalations, notification retries, health checks, provider registry) ───
   callu-worker:
-    image: orchestalabs/callu-worker:1.0.0
+    image: orchestalabs/callu-worker:1.2.0
     container_name: callu-worker
     restart: unless-stopped
     healthcheck:
@@ -186,7 +187,7 @@ services:
   # ─── Web UI (nginx) ────────────────────────────────────────
   # Single entry point: serves SPA + proxies /api/* to API.
   callu-web:
-    image: orchestalabs/callu-web:1.0.0
+    image: orchestalabs/callu-web:1.2.0
     container_name: callu-web
     restart: unless-stopped
     ports:

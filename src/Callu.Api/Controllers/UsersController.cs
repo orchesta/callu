@@ -5,6 +5,7 @@ using Callu.Application.Services;
 using Callu.Shared.Localization;
 using Callu.Shared.Results;
 using Callu.Shared.Models.Auth;
+using Callu.Shared.Models.Notifications;
 
 namespace Callu.Api.Controllers;
 
@@ -12,7 +13,9 @@ namespace Callu.Api.Controllers;
 [ApiController]
 [Route("api/v{version:apiVersion}/users")]
 [Authorize(Policy = Policies.CanManageUsers)]
-public class UsersController(IUserManagementService userService) : ControllerBase
+public class UsersController(
+    IUserManagementService userService,
+    IProfileService profileService) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
@@ -67,6 +70,42 @@ public class UsersController(IUserManagementService userService) : ControllerBas
         var success = await userService.ResendInvitationAsync(id, ct);
         if (!success) return NotFound();
         return Ok(new { message = Messages.Get("users.invitationResent") });
+    }
+
+    [HttpGet("{id}/notification-preferences")]
+    public async Task<IActionResult> GetNotificationPreferences(string id, CancellationToken ct)
+    {
+        var prefs = await profileService.GetNotificationPreferencesAsync(id, ct);
+        return Ok(new NotificationPreferencesDto
+        {
+            EmailEnabled = prefs.EmailNotifications,
+            SmsEnabled = prefs.SmsNotifications,
+            VoiceEnabled = prefs.VoiceNotifications,
+            PushEnabled = prefs.PushNotifications,
+            QuietHoursStart = prefs.QuietHoursStart,
+            QuietHoursEnd = prefs.QuietHoursEnd,
+            Timezone = prefs.Timezone
+        });
+    }
+
+    [HttpPut("{id}/notification-preferences")]
+    public async Task<IActionResult> UpdateNotificationPreferences(
+        string id, [FromBody] NotificationPreferencesDto request, CancellationToken ct)
+    {
+        var prefs = new NotificationPreferences
+        {
+            EmailNotifications = request.EmailEnabled,
+            SmsNotifications = request.SmsEnabled,
+            VoiceNotifications = request.VoiceEnabled,
+            PushNotifications = request.PushEnabled,
+            QuietHoursStart = request.QuietHoursStart,
+            QuietHoursEnd = request.QuietHoursEnd,
+            Timezone = request.Timezone ?? "UTC"
+        };
+
+        var success = await profileService.UpdateNotificationPreferencesAsync(id, prefs, ct);
+        if (!success) return BadRequest(ApiResponse.Fail("Failed to update preferences"));
+        return Ok(new { message = "Notification preferences updated" });
     }
 }
 

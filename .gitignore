@@ -459,3 +459,6 @@ secrets.json
 # Tailwind output (regenerated)
 wwwroot/css/app.css.map
 /src/Callu.Web/dist
+src/.idea/.idea.CalluApp/.idea/vcs.xml
+src/.idea/.idea.CalluApp/.idea/encodings.xml
+src/.idea/.idea.CalluApp/.idea/workspace.xml

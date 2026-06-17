@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { t } from "@/shared/locales/i18n";
-import { Users, UserPlus, Search, Mail, Trash2, Edit, UserCheck, Clock, Crown, Shield, Eye } from "lucide-react";
+import { Users, UserPlus, Search, Mail, Trash2, Edit, UserCheck, Clock, Crown, Shield, Eye, MessageSquare, PhoneCall, Bell } from "lucide-react";
 import { LoadingState } from "@/shared/components/loading-state";
 import { ErrorState } from "@/shared/components/error-state";
 import { motion, AnimatePresence } from "motion/react";
@@ -11,6 +11,8 @@ import {
   useChangeRole,
   useRemoveUser,
   useResendInvitation,
+  useUserNotificationPreferences,
+  useUpdateUserNotificationPreferences,
 } from "../hooks/use-users";
 import type { UserDto, AdminUpdateUserRequest } from "../types/user.types";
 
@@ -564,6 +566,22 @@ function EditUserModal({
   const [phoneNumber, setPhoneNumber] = useState(user.phoneNumber ?? "");
   const [role, setRole] = useState(user.role);
 
+  const { data: prefs } = useUserNotificationPreferences(user.id, isOpen);
+  const updatePrefs = useUpdateUserNotificationPreferences();
+
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!prefs) return;
+    setEmailEnabled(prefs.emailEnabled);
+    setSmsEnabled(prefs.smsEnabled);
+    setVoiceEnabled(prefs.voiceEnabled);
+    setPushEnabled(prefs.pushEnabled);
+  }, [prefs]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -572,8 +590,29 @@ function EditUserModal({
       firstName.trim() !== (user.firstName ?? "") ||
       lastName.trim() !== (user.lastName ?? "") ||
       phoneNumber.trim() !== (user.phoneNumber ?? "");
+    const prefsChanged =
+      !!prefs &&
+      (emailEnabled !== prefs.emailEnabled ||
+        smsEnabled !== prefs.smsEnabled ||
+        voiceEnabled !== prefs.voiceEnabled ||
+        pushEnabled !== prefs.pushEnabled);
 
     if (roleChanged) onChangeRole(user.id, role);
+
+    if (prefsChanged) {
+      updatePrefs.mutate({
+        id: user.id,
+        data: {
+          emailEnabled,
+          smsEnabled,
+          voiceEnabled,
+          pushEnabled,
+          quietHoursStart: prefs?.quietHoursStart,
+          quietHoursEnd: prefs?.quietHoursEnd,
+          timezone: prefs?.timezone,
+        },
+      });
+    }
 
     if (profileChanged) {
       onUpdateUser(user.id, {
@@ -585,6 +624,13 @@ function EditUserModal({
       onClose();
     }
   };
+
+  const channels = [
+    { key: "email", label: t("users.channelEmail"), icon: Mail, value: emailEnabled, set: setEmailEnabled },
+    { key: "sms", label: t("users.channelSms"), icon: MessageSquare, value: smsEnabled, set: setSmsEnabled },
+    { key: "voice", label: t("users.channelVoice"), icon: PhoneCall, value: voiceEnabled, set: setVoiceEnabled },
+    { key: "push", label: t("users.channelPush"), icon: Bell, value: pushEnabled, set: setPushEnabled },
+  ];
 
   return (
     <AnimatePresence>
@@ -671,6 +717,33 @@ function EditUserModal({
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-300">{t("users.notificationChannels")}</label>
+                <div className="space-y-2">
+                  {channels.map(({ key, label, icon: Icon, value, set }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => set(!value)}
+                      className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 transition-colors hover:bg-white/10"
+                    >
+                      <span className="flex items-center gap-2 text-sm text-white">
+                        <Icon className="h-4 w-4 text-gray-400" />
+                        {label}
+                      </span>
+                      <span
+                        className={`relative h-5 w-9 rounded-full transition-colors ${value ? "bg-brand-500" : "bg-white/15"}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${value ? "left-[18px]" : "left-0.5"}`}
+                        />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-gray-400">{t("users.notificationChannelsHint")}</p>
+              </div>
 
               <div className="flex items-center gap-3 pt-4">
                 <button

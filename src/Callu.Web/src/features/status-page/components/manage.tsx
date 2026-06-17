@@ -59,6 +59,7 @@ import {
   useRemoveComponent,
   useCreateStatusIncident,
   useAddIncidentUpdate,
+  useNotifyStatusPageSubscribers,
   useStatusPageStats,
   useStatusPageUptime,
   useStatusPageSubscribers,
@@ -122,6 +123,7 @@ export function StatusPageManagement() {
   const [updateMessage, setUpdateMessage] = useState('');
   const [updateStatus, setUpdateStatus] = useState('investigating');
   const addIncidentUpdateMutation = useAddIncidentUpdate();
+  const notifySubscribersMutation = useNotifyStatusPageSubscribers();
   const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [incidentTitle, setIncidentTitle] = useState('');
@@ -733,6 +735,25 @@ export function StatusPageManagement() {
                             ) : (
                               <Plus className="w-4 h-4" />
                             )}
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 pt-3 border-t border-error-500/10">
+                          <p style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                            {t('statusPage.notifySubscribersHint')}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => notifySubscribersMutation.mutate(incident.id)}
+                            disabled={notifySubscribersMutation.isPending}
+                            className="bg-input-background shrink-0"
+                          >
+                            {notifySubscribersMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Mail className="w-4 h-4 mr-2" />
+                            )}
+                            {t('statusPage.notifySubscribers')}
                           </Button>
                         </div>
                       </div>

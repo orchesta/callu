@@ -19,7 +19,15 @@ public class VoximplantConfig
     
     [JsonPropertyName("accountName")]
     public string AccountName { get; set; } = string.Empty;
-    
+
+    /// <summary>
+    /// Voximplant data-center node the account lives on (NODE_1…NODE_12). Required by the
+    /// Web SDK to connect for video conferences; chosen in the provider form. Found in the
+    /// Voximplant control panel → "Credentials for working with API, SDK, SIP".
+    /// </summary>
+    [JsonPropertyName("node")]
+    public string Node { get; set; } = string.Empty;
+
     [JsonPropertyName("incidentCallRuleId")]
     [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public long? IncidentCallRuleId { get; set; }
