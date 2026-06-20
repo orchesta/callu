@@ -3,6 +3,11 @@
 Notable, user-facing changes to Callu. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.1 — 2026-06-18
+
+- Security maintenance: updated web dependencies (React Router, Vite, and a few
+  transitive packages) to clear known vulnerability advisories. No functional changes.
+
 ## 1.2.0 — 2026-06-18
 
 - Video conferencing now uses the Voximplant Web SDK v5. The connection node
