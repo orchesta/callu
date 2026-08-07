@@ -1,0 +1,482 @@
+# Callu CI — the gate every change passes before it can be released.
+#
+# It builds and tests the backend, the SPA and the three container images, and reads
+# every new migration for the operations that would crash-loop a self-hosted install on
+# upgrade. Nothing here publishes anything: releasing is a deliberate manual act
+# (bump the image tags in docker-compose.yml, build, smoke test, push), and a workflow
+# holding registry credentials would quietly become a second way to publish.
+#
+# Design notes:
+#   * No `paths:` filters. A path-filtered workflow whose check is "required" in branch
+#     protection never reports for an unrelated change and blocks the PR forever. If
+#     minutes ever matter, detect changes INSIDE an always-running job rather than with
+#     an `on.*.paths` filter.
+#   * Job `name:` strings are what branch protection stores as the required check names.
+#     Renaming one silently disables that gate, so they stay put — and they stay free of
+#     versions ("Node 22", "SDK 10") for the same reason.
+#   * Actions are pinned by COMMIT SHA with the tag in a trailing comment. A tag, even a
+#     major one, is mutable: whoever controls the action repository can repoint it, and
+#     these actions run with this repository's credentials. The comment keeps the pin
+#     readable and Dependabot (.github/dependabot.yml) moves SHA and comment together.
+#     Pinned at each action's newest release, resolved from the repositories themselves
+#     rather than copied from a release note (swept 2026-07-27).
+#   * No secrets. Every test runs against Testcontainers or committed dev values. The
+#     known flake source is anonymous Docker Hub pulls (postgres, rabbitmq, ryuk) hitting
+#     rate limits on shared runner IPs; if that starts happening, add docker/login-action
+#     with a Hub token rather than deleting the tests.
+#   * The .NET SDK is requested as `10.0.x`, not pinned by a global.json — this repository
+#     has none. That is a looseness, not a decision: a feature-band difference between a
+#     runner and a laptop would show up here first, as a build error.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Deliberately unfiltered: a PR into a release or hotfix branch has to pass the same
+  # gate as one into main, and that is exactly when skipping it would be most expensive.
+  pull_request:
+  workflow_dispatch: # lets the gate be exercised without pushing anything
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only supersede PR runs. Cancelling a push-to-main run would leave the commit a
+  # release is cut from with no completed CI result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend — build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # There is no packages.lock.json, so setup-dotnet's own cache cannot be used. The
+      # .csproj files and Directory.Build.props are the key because they are what decides
+      # the restore graph; a miss only costs a restore, never correctness.
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('src/**/*.csproj', 'src/Directory.Build.props') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore src/CalluApp.slnx
+
+      # -warnaserror is what makes "the build is warning-free" a rule instead of a habit: without it
+      # a new warning lands green and is only noticed when someone reads the log.
+      #
+      # The NU19xx audit codes are demoted back to warnings on purpose. They are replayed from the
+      # restore graph on every build, so promoting them means the day an advisory is published for
+      # any package in the tree, every open PR fails its Build step for something its diff did not
+      # touch — measured, not assumed. The advisories are not dropped: the audit step below fails on
+      # High and Critical, where the failure says what it is instead of arriving as a compile error.
+      - name: Build
+        run: dotnet build src/CalluApp.slnx --no-restore --configuration Release -warnaserror -warnnotaserror:NU1901,NU1902,NU1903,NU1904
+
+      # `dotnet list package --vulnerable` exits 0 whatever it finds, so the JSON is what decides.
+      # Moderate and Low are reported by the build's NU19xx warnings and do not block.
+      #
+      # The solution path is explicit because this job has no working-directory: without it the
+      # command looks for a project in the repository root, finds none, and the step fails for its
+      # own plumbing — which is exactly how it failed the first time CI ran it.
+      - name: Vulnerability audit
+        run: |
+          dotnet list src/CalluApp.slnx package --vulnerable --include-transitive --format json > audit.json
+          python3 - <<'PY'
+          import json, sys
+
+          report = json.load(open("audit.json", encoding="utf-8"))
+          blocking = [
+              (pkg["id"], pkg.get("resolvedVersion"), vuln["severity"], vuln.get("advisoryurl", ""))
+              for project in report.get("projects", [])
+              for framework in project.get("frameworks") or []
+              for section in ("topLevelPackages", "transitivePackages")
+              for pkg in framework.get(section) or []
+              for vuln in pkg.get("vulnerabilities") or []
+              if vuln.get("severity") in ("High", "Critical")
+          ]
+
+          for pkg, version, severity, advisory in blocking:
+              print(f"::error::{severity} advisory in {pkg} {version} — {advisory}")
+
+          print(f"{len(blocking)} high/critical advisories in the restored graph")
+          sys.exit(1 if blocking else 0)
+          PY
+
+      # Pinned to the SDK's major so the tooling and the EF Core packages the solution
+      # references stay on the same version line. The explicit GITHUB_PATH line is not
+      # decoration: `dotnet ef` resolves the `dotnet-ef` executable off PATH, and if the global
+      # tools directory is not on it the next step fails with "command or file was not found" —
+      # a gate failing for its own plumbing rather than for drift.
+      - name: Install dotnet-ef
+        run: |
+          dotnet tool install --global dotnet-ef --version '10.0.*'
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      # `MigrationRunner` throws on model/snapshot drift at startup, which means a PR that edits
+      # an entity and forgets `dotnet ef migrations add` is discovered by the operator whose
+      # upgrade just crash-looped, not by us. This is the same check, moved in front of the merge.
+      #
+      # No database and no connection string: `has-pending-model-changes` compares the compiled
+      # model to the checked-in snapshot, and `ApplicationDbContextDesignTimeFactory` gives the
+      # tooling a DbContext directly, so EF never builds Callu.Api's host (whose startup
+      # validation would otherwise demand a real JwtSettings:SecretKey) and never opens the
+      # factory's fallback connection string.
+      - name: Model/snapshot drift
+        run: |
+          dotnet ef migrations has-pending-model-changes \
+            --project src/Callu.Infrastructure \
+            --startup-project src/Callu.Api \
+            --configuration Release
+
+      # CALLU_REQUIRE_DOCKER=1 is load-bearing, not belt-and-braces. The migration, concurrency
+      # and reaper tests use Testcontainers and skip themselves when no Docker daemon answers —
+      # they are also the only tests that execute the real migration DDL against Postgres. A
+      # runner that lost Docker would otherwise report green having exercised none of it, which
+      # is exactly how this repo has been bitten before. The flag turns that skip into a failure.
+      - name: Test
+        env:
+          CALLU_REQUIRE_DOCKER: '1'
+        run: >-
+          dotnet test src/CalluApp.slnx --no-build --configuration Release --verbosity normal
+          --logger "trx;LogFileName=backend-tests.trx"
+
+      # A Testcontainers failure often surfaces as one unhelpful line in the log while the
+      # useful detail sits in the trx. Uploaded even when the job failed — especially then.
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-test-results
+          path: src/Callu.Tests/TestResults/**
+          if-no-files-found: warn
+          retention-days: 7
+
+  frontend:
+    name: Frontend — type-check, lint, build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: src/Callu.Web
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Kept in step with the Node the SPA image is built on (src/Callu.Web/Dockerfile);
+      # a CI that builds on a different major than the shipped image proves less than it
+      # looks like it does.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/Callu.Web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      # PENDING FIX (formatting gate) — `format`/`format:check` have been in package.json since
+      # the 1.0.0 baseline and nothing has ever run them, because they cannot run: prettier is in
+      # neither devDependencies nor package-lock.json and there is no prettier config in the
+      # project, so on a clean `npm ci` runner this step exits 127 ("prettier: not found") — this
+      # was executed and confirmed, it is not a guess. Enabling it as-is would make CI red for a
+      # missing tool rather than for a formatting problem, so it is parked here as the worklist
+      # entry instead of quietly deleted.
+      #
+      # To turn it on, in one PR: add prettier to devDependencies, add a config that agrees with
+      # the eslint rules already enforced, run `npm run format` over src/, then drop the
+      # `if: false`. Until then the formatting of this project is whatever eslint checks — the
+      # `Lint` step above is the real style gate and prettier adds nothing that is enforced today.
+      - name: Format check
+        if: false
+        run: npm run format:check
+
+      - name: Build
+        run: npm run build
+
+      # `test:coverage:ci` rather than `test:ci`: vitest.config.ts carries a coverage ratchet, and
+      # until this ran in CI it was decorative — a PR deleting the auth-session tests passed. The
+      # thresholds are a floor that must not drop; when a legitimate change lowers coverage, raise
+      # the tests, not the ratchet. (`test:coverage` is watch mode and would hang the runner.)
+      - name: Test with coverage
+        run: npm run test:coverage:ci
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-coverage
+          path: src/Callu.Web/coverage/**
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The three published images, built exactly as a release builds them — and never
+  # pushed. Nothing else in this repository compiles the Dockerfiles, so without this a
+  # broken COPY or a base-image tag that vanished is discovered during a release, by
+  # hand, after the version has already been bumped. A matrix rather than one job so a
+  # failure names the image, and so the two .NET publishes do not run back to back.
+  # ---------------------------------------------------------------------------
+  images:
+    name: Container images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      # One broken Dockerfile should not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            context: ./src
+            dockerfile: Callu.Api/Dockerfile
+            entrypoint: Callu.Api.dll
+          - image: worker
+            context: ./src
+            dockerfile: Callu.Worker/Dockerfile
+            entrypoint: Callu.Worker.dll
+          - image: web
+            context: ./src/Callu.Web
+            dockerfile: Dockerfile
+            entrypoint: ''
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Plain `docker build`, no buildx action and no registry login: this job must not be
+      # able to publish anything even if someone later adds credentials to the repository.
+      # The tag is local and thrown away with the runner.
+      - name: Build ${{ matrix.image }} image
+        run: >-
+          docker build
+          --file ${{ matrix.context }}/${{ matrix.dockerfile }}
+          --tag callu-${{ matrix.image }}:ci
+          ${{ matrix.context }}
+
+      # The runtime has to be there, not just the build. A missing native dependency or an
+      # ENTRYPOINT naming a dll that was never published builds perfectly and fails on the
+      # operator's first `up`. Both hosts exit non-zero without a database, so this asks
+      # questions that need no dependencies rather than starting the app.
+      - name: Smoke the .NET image
+        if: ${{ matrix.entrypoint != '' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint dotnet "callu-${{ matrix.image }}:ci" --info > /dev/null
+          docker run --rm --entrypoint sh "callu-${{ matrix.image }}:ci" -c 'test -f "/app/${{ matrix.entrypoint }}"'
+
+      # The config is parsed with the real nginx. It survives having no API to reach because
+      # every proxy_pass goes through a variable and a resolver, which is deliberate — but
+      # that is a property of the config, so it is worth a gate rather than a memory.
+      - name: Smoke the web image
+        if: ${{ matrix.image == 'web' }}
+        run: docker run --rm callu-web:ci nginx -t
+
+  migration-safety:
+    name: Migration safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Covers CONTRIBUTING.md Golden Rules 1-4 by reading the EF operation calls a new migration
+      # makes. What it does NOT cover, stated plainly so nobody reads a green tick as more than it
+      # is: anything inside raw SQL (that path demands a reviewed marker instead — see below), a
+      # `CreateIndex` that locks a large table for minutes, data backfills that are correct in DDL
+      # terms but wrong in domain terms, and Rule 5 (version tolerance), which no grep can judge.
+      - name: Reject unsafe migration operations
+        run: |
+          set -euo pipefail
+
+          snapshot='src/Callu.Infrastructure/Migrations/ApplicationDbContextModelSnapshot.cs'
+          base='${{ github.event.pull_request.base.sha }}'
+          if [ -z "$base" ]; then base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"; fi
+          failed=0
+
+          # Without this, a base ref that does not resolve makes every `git diff` below return
+          # nothing, the job reports "no migrations touched" and passes. A safety gate that
+          # fails open on its own plumbing is worse than not having it.
+          if ! git rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
+            echo "::error::Could not resolve the base revision '$base', so this job compared nothing."
+            echo "::error::Check that the checkout step still sets fetch-depth: 0."
+            exit 1
+          fi
+
+          # EF writes a mirror-image Down() for every migration, so DropTable/DropColumn are
+          # always in there — scanning whole files would fail every migration anyone ever
+          # generates, and a guard that fires on everything gets deleted. Only Up() runs during a
+          # self-hosted upgrade, so only Up() is scanned.
+          #
+          # The Up() body is then collapsed to one line per migrationBuilder call so a single grep
+          # can see a whole argument list (EF spreads each call over eight-odd lines). The split is
+          # on the next `migrationBuilder.` rather than on `;`, which keeps raw SQL containing
+          # semicolons in one piece.
+          up_calls() {
+            awk '/protected override void Up\(/{u=1} /protected override void Down\(/{u=0} u' "$1" \
+              | tr '\n' ' ' \
+              | sed 's/migrationBuilder\./\n&/g' \
+              | tr -s ' ' \
+              | grep '^migrationBuilder\.' || true
+          }
+
+          # Entity.Property -> max length, read out of a model snapshot's fluent layout (one
+          # `.HasMaxLength(n)` line inside each `b.Property<T>("Name")` block).
+          snapshot_lengths() {
+            awk '
+              /modelBuilder\.Entity\("/ {
+                if (match($0, /"[^"]+"/)) entity = substr($0, RSTART + 1, RLENGTH - 2)
+                prop = ""
+                next
+              }
+              /b\.Property<[^>]*>\("/ {
+                if (match($0, /\("[^"]+"\)/)) prop = substr($0, RSTART + 2, RLENGTH - 4)
+                next
+              }
+              /\.HasMaxLength\(/ {
+                if (prop != "" && match($0, /HasMaxLength\([0-9]+\)/))
+                  print entity "." prop "\t" substr($0, RSTART + 13, RLENGTH - 14)
+              }
+            ' "$1" | LC_ALL=C sort
+          }
+
+          check_migration_file() {
+            f="$1"
+            calls="$(up_calls "$f")"
+
+            if [ -z "$calls" ]; then
+              if grep -q 'migrationBuilder\.' "$f"; then
+                echo "::error file=$f::This file calls migrationBuilder but no Up() body was found, so"
+                echo "::error file=$f::none of the safety checks below looked at it. The scanner keys on the"
+                echo "::error file=$f::literal 'protected override void Up(' that EF generates — keep that"
+                echo "::error file=$f::signature rather than reformatting it."
+                failed=1
+              fi
+              return 0
+            fi
+
+            # Rules 1 & 2 — drop / rename.
+            hits=$(printf '%s\n' "$calls" | grep -E '^migrationBuilder\.(DropColumn|DropTable|RenameColumn|RenameTable)\(' || true)
+            if [ -n "$hits" ]; then
+              echo "::error file=$f::A new migration drops or renames a column/table. Callu migrates every"
+              echo "::error file=$f::self-hosted database unattended, so this must go through expand → migrate →"
+              echo "::error file=$f::contract across releases instead. See CONTRIBUTING.md."
+              printf '%s\n' "$hits" | sed 's/^/    /'
+              failed=1
+            fi
+
+            # Rule 3 — shrinking a data type. EF puts both maxLength: and oldMaxLength: on an
+            # AlterColumn, so the shrink is visible inside the call. Losing the limit entirely
+            # (varchar -> text) is a widening and fine; gaining one (text -> varchar(n)) is a
+            # narrowing against rows that were never bounded, so it is flagged too.
+            hits=$(printf '%s\n' "$calls" | grep '^migrationBuilder\.AlterColumn<' | awk '
+              {
+                s = $0; old = -1; new = -1
+                if (match(s, /oldMaxLength: [0-9]+/)) {
+                  old = substr(s, RSTART + 14, RLENGTH - 14) + 0
+                  s = substr(s, 1, RSTART - 1) " " substr(s, RSTART + RLENGTH)
+                }
+                if (match(s, /maxLength: [0-9]+/)) new = substr(s, RSTART + 11, RLENGTH - 11) + 0
+                if (new >= 0 && old >= 0 && new < old) print "shrinks " old " -> " new ": " $0
+                else if (new >= 0 && old < 0) print "bounds a previously unbounded column at " new ": " $0
+              }' || true)
+            if [ -n "$hits" ]; then
+              echo "::error file=$f::A new migration narrows a column. Every row already longer than the new"
+              echo "::error file=$f::limit fails the ALTER, and because Callu migrates on boot that leaves the"
+              echo "::error file=$f::API in a crash loop no operator can escape without editing the database by"
+              echo "::error file=$f::hand. Sizes may only grow. See CONTRIBUTING.md Rule 3."
+              printf '%s\n' "$hits" | sed 's/^/    /'
+              failed=1
+            fi
+
+            # Rule 4 — non-nullable column with no default.
+            hits=$(printf '%s\n' "$calls" \
+              | grep '^migrationBuilder\.AddColumn<' \
+              | grep 'nullable: false' \
+              | grep -Ev 'defaultValue:|defaultValueSql:' || true)
+            if [ -n "$hits" ]; then
+              echo "::error file=$f::A new migration adds a NOT NULL column with no default. It passes on an"
+              echo "::error file=$f::empty database, which is the one CI and your laptop have; on every install"
+              echo "::error file=$f::that already holds rows the ALTER fails and the API crash-loops on boot."
+              echo "::error file=$f::Add it nullable, backfill, tighten in a later release. CONTRIBUTING.md Rule 4."
+              printf '%s\n' "$hits" | sed 's/^/    /'
+              failed=1
+            fi
+
+            # Raw SQL. The checks above read EF's operation calls; they cannot read SQL, so this
+            # one asks for evidence that a human did. The marker deliberately silences only this
+            # check — the rules above have no opt-out.
+            if printf '%s\n' "$calls" | grep -q '^migrationBuilder\.Sql('; then
+              if ! grep -q 'migration-safety: reviewed' "$f"; then
+                echo "::error file=$f::A new migration runs raw SQL, which this job cannot reason about — it"
+                echo "::error file=$f::reads EF operation calls, not SQL. Replay it against a database holding"
+                echo "::error file=$f::real-like data, confirm it is safe and re-runnable, then record that in"
+                echo "::error file=$f::the migration as: // migration-safety: reviewed <why this is safe>"
+                failed=1
+              fi
+            fi
+          }
+
+          # Added, modified *and* renamed migrations. Editing one that has already shipped changes
+          # what a half-upgraded install runs next, so it deserves the same reading as a new one —
+          # and R is in the filter because leaving it out was a hole with a real example: replacing
+          # the baseline migration with a regenerated one is a delete plus an add that git scores as
+          # a 95% rename, so the whole file went unread and the job printed "no migrations touched".
+          # Rename detection needs only ~50% similarity, so the unread file need not be similar at all.
+          # Designer files and the snapshot carry no operations and are handled separately.
+          changed=$(git diff --diff-filter=AMR --name-only "$base" HEAD -- 'src/Callu.Infrastructure/Migrations/*.cs' \
+            | grep -vE '\.Designer\.cs$|ApplicationDbContextModelSnapshot\.cs$' || true)
+
+          if [ -n "$changed" ]; then
+            echo "Migrations touched by this change:"; printf '%s\n' "$changed" | sed 's/^/  /'
+            for f in $changed; do
+              if [ -f "$f" ]; then check_migration_file "$f"; fi
+            done
+          else
+            echo "No migrations added or modified in this change."
+          fi
+
+          # Rule 3 again, from the other side: a hand-edited or tool-regenerated snapshot whose
+          # column got shorter. Only keys present in both revisions are compared, so a brand-new
+          # property is not a finding here and a property that gained a length it never had is
+          # caught by the AlterColumn check above, not by this one.
+          if [ -n "$(git diff --name-only "$base" HEAD -- "$snapshot" || true)" ]; then
+            echo "Model snapshot changed — comparing column lengths against $base."
+            if git show "$base:$snapshot" > /tmp/snapshot-base.cs 2>/dev/null; then
+              snapshot_lengths /tmp/snapshot-base.cs > /tmp/lengths-base.tsv
+              snapshot_lengths "$snapshot" > /tmp/lengths-head.tsv
+              hits=$(LC_ALL=C join -t "$(printf '\t')" /tmp/lengths-base.tsv /tmp/lengths-head.tsv \
+                | awk -F'\t' '$3 + 0 < $2 + 0 { print "    " $1 ": " $2 " -> " $3 }' || true)
+              if [ -n "$hits" ]; then
+                echo "::error file=$snapshot::The model snapshot shortens a column. Every row already longer"
+                echo "::error file=$snapshot::than the new limit fails the startup migration and the API"
+                echo "::error file=$snapshot::crash-loops on boot. Sizes may only grow. CONTRIBUTING.md Rule 3."
+                printf '%s\n' "$hits"
+                failed=1
+              fi
+            else
+              echo "$snapshot does not exist at $base — nothing to compare."
+            fi
+          fi
+
+          if [ "$failed" -ne 0 ]; then exit 1; fi
+          echo "Migration safety checks passed."

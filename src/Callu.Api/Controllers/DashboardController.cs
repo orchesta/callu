@@ -1,0 +1,46 @@
+using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Callu.Application.Services;
+
+namespace Callu.Api.Controllers;
+
+/// <summary>
+/// Dashboard analytics and summary endpoints
+/// </summary>
+[ApiVersion(1)]
+[ApiController]
+[Route("api/v{version:apiVersion}/[controller]")]
+[Authorize(Policy = Policies.CanViewReports)]
+public class DashboardController(
+    IIncidentQueryService incidentQueryService,
+    IServiceCatalogService serviceCatalogService) : ControllerBase
+{
+    /// <summary>Full dashboard summary (counts, MTTA/MTTR, recent incidents); timeRangeDays 0 means all time.</summary>
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary([FromQuery] int recentCount = 5, [FromQuery] int timeRangeDays = 0, CancellationToken cancellationToken = default)
+    {
+        var summary = await incidentQueryService.GetDashboardSummaryAsync(recentCount, timeRangeDays, cancellationToken);
+        return Ok(summary);
+    }
+
+    /// <summary>
+    /// Get incident counts grouped by status
+    /// </summary>
+    [HttpGet("incident-counts")]
+    public async Task<IActionResult> GetIncidentCounts(CancellationToken cancellationToken)
+    {
+        var counts = await incidentQueryService.GetIncidentCountsAsync(cancellationToken);
+        return Ok(counts);
+    }
+
+    /// <summary>
+    /// Get service catalog for system health overview
+    /// </summary>
+    [HttpGet("system-health")]
+    public async Task<IActionResult> GetSystemHealth(CancellationToken cancellationToken)
+    {
+        var services = await serviceCatalogService.GetServicesAsync(cancellationToken);
+        return Ok(services);
+    }
+}

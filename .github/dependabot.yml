@@ -1,0 +1,28 @@
+# What keeps the SHA pins in .github/workflows/ci.yml maintainable.
+#
+# The workflow pins every action to a commit, which is the safe form but also an
+# unreadable one to update by hand: without this file the pins would rot, and a rotted
+# pin is a security control that has quietly become a liability — old action code running
+# with this repository's credentials, and nobody watching it.
+#
+# Only the actions ecosystem is enabled. NuGet and npm version updates are deliberately
+# left off: the build already fails on High/Critical advisories (CI's "Vulnerability
+# audit" step) and GitHub's security alerts still cover both, so adding version PRs here
+# would trade a small amount of signal for a steady stream of noise on a two-repository
+# project. Turn one on when someone is going to read it.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      # One PR for the lot: these move together, and reviewing five identical SHA bumps
+      # separately is how they stop being reviewed at all.
+      actions:
+        patterns:
+          - "*"

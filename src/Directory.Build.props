@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- .NET 10 SDK defaults; explicit 14 for C# 14 (extension members, field keyword, …) -->
+    <LangVersion>14</LangVersion>
+    <!-- Released version — bump together with the docker-compose image tags. -->
+    <Version>1.0.0</Version>
+    <!-- On so a malformed doc comment or a `///` orphaned from its member is a build warning.
+         CS1591 stays off: there is no obligation to document every public member. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

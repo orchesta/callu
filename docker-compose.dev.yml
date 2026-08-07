@@ -1,0 +1,32 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  CalluApp — Local dev overlay (build from source)          ║
+# ╠══════════════════════════════════════════════════════════════╣
+# ║  NOT auto-merged. `docker compose up -d` alone uses the    ║
+# ║  published images in docker-compose.yml. Opt in to build   ║
+# ║  from the local ./src tree by naming both files:           ║
+# ║                                                            ║
+# ║    docker compose -f docker-compose.yml \                  ║
+# ║      -f docker-compose.dev.yml up -d --build               ║
+# ║                                                            ║
+# ║  (Named .dev.yml, not .override.yml, so a plain            ║
+# ║  `docker compose up` never surprises you with a source     ║
+# ║  build. Remote / Portainer deploys only ship              ║
+# ║  docker-compose.yml and keep pulling published images.)    ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+services:
+
+  callu-api:
+    build:
+      context: ./src
+      dockerfile: Callu.Api/Dockerfile
+
+  callu-worker:
+    build:
+      context: ./src
+      dockerfile: Callu.Worker/Dockerfile
+
+  callu-web:
+    build:
+      context: ./src/Callu.Web
+      dockerfile: Dockerfile

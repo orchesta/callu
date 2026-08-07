@@ -1,0 +1,18 @@
+{
+    "incident_message": "This is Callu with an incident alert. {severity_text} on {service}. {title}.",
+    "severity_critical": "Critical",
+    "severity_high": "High priority",
+    "severity_medium": "Medium priority",
+    "severity_low": "Low priority",
+    "dtmf_prompt": "Press 1 to acknowledge and stop the paging, 2 to pass it to the next person, star to hear this again, or 9 to ask for a video conference. If you do nothing, the next person on the schedule will be called.",
+    "ack_confirm": "Acknowledged. Nobody else will be called about this.",
+    "escalation_confirm": "Understood. The next person on the schedule is being called now.",
+    "ack_failed": "Sorry, the acknowledgement could not be registered. The incident is still open and paging continues. Please acknowledge it in Callu.",
+    "escalation_failed": "Sorry, the escalation request could not be registered. The incident is still open. Please escalate it in Callu.",
+    "invalid_key": "That key does nothing here. Press 1 to acknowledge, 2 to pass it on, star to hear the alert again, or 9 for a video conference.",
+    "conference_wait": "Setting up a video conference for you. Please hold on.",
+    "conference_success": "The video conference is ready and the link has gone to {count} people. You can join now.",
+    "conference_fail": "Sorry, the conference could not be created. The incident is still open in Callu.",
+    "conference_duplicate": "A video conference has already been requested for this incident.",
+    "conference_requested": "Your request has been recorded and will show on the incident in Callu. This call will now end."
+}

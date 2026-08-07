@@ -1,0 +1,73 @@
+<!-- Conference Invite Email Content -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+        <td style="font-size: 20px; font-weight: 600; color: #111111; padding-bottom: 16px;">
+            Video Conference Invitation
+        </td>
+    </tr>
+    <tr>
+        <td style="padding-bottom: 20px;">
+            <!-- Info Box -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                style="background-color: #eef2ff; border: 1px solid #6366f1; border-radius: 6px;">
+                <tr>
+                    <td style="padding: 12px; color: #3730a3; font-size: 14px; font-weight: 600;">
+                        A video conference has been started for an incident and you are invited to join.
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <!-- Incident Details Table -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                style="background-color: #f9fafb; border-radius: 6px;">
+                <tr>
+                    <td style="padding: 16px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 100px;">Incident:
+                                </td>
+                                <td style="padding: 8px 0; color: #111111; font-size: 14px; font-weight: 600;">
+                                    {{IncidentTitle}}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Severity:</td>
+                                <td style="padding: 8px 0;">
+                                    <span style="{{SeverityStyle}}">{{Severity}}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Duration:</td>
+                                <td style="padding: 8px 0; color: #111111; font-size: 14px;">
+                                    The room stays open for {{DurationMinutes}} minutes</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="padding: 24px 0;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ConferenceUrl}}" style="height:44px;v-text-anchor:middle;width:180px;" arcsize="14%" strokecolor="#4f46e5" fillcolor="#4f46e5">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">Join Conference</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-->
+            <a href="{{ConferenceUrl}}"
+                style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">Join
+                Conference</a>
+            <!--<![endif]-->
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="color: #888888; font-size: 14px;">
+            <p style="margin: 0;">If the button doesn't work, open this link: <a href="{{ConferenceUrl}}"
+                    style="color: #4f46e5;">{{ConferenceUrl}}</a></p>
+        </td>
+    </tr>
+</table>

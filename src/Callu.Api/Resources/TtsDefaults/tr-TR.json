@@ -1,0 +1,18 @@
+{
+    "incident_message": "Callu'dan olay bildirimi. {service} servisinde {severity_text} bir sorun var. {title}.",
+    "severity_critical": "kritik",
+    "severity_high": "yüksek öncelikli",
+    "severity_medium": "orta öncelikli",
+    "severity_low": "düşük öncelikli",
+    "dtmf_prompt": "Onaylamak ve aramaları durdurmak için 1'e, sıradaki kişiye devretmek için 2'ye, bunu tekrar dinlemek için yıldıza, video konferans için 9'a basın. Hiçbir şey yapmazsanız takvimdeki sıradaki kişi aranacak.",
+    "ack_confirm": "Onaylandı. Bu olay için başka kimse aranmayacak.",
+    "escalation_confirm": "Anlaşıldı. Takvimdeki sıradaki kişi şimdi aranıyor.",
+    "ack_failed": "Üzgünüz, onayınız kaydedilemedi. Olay hâlâ açık ve aramalar sürüyor. Lütfen olayı Callu üzerinden onaylayın.",
+    "escalation_failed": "Üzgünüz, yükseltme talebiniz kaydedilemedi. Olay hâlâ açık. Lütfen yükseltmeyi Callu üzerinden yapın.",
+    "invalid_key": "Bu tuşun burada bir karşılığı yok. Onaylamak için 1'e, devretmek için 2'ye, bildirimi tekrar dinlemek için yıldıza, video konferans için 9'a basın.",
+    "conference_wait": "Video konferans hazırlanıyor, lütfen bekleyin.",
+    "conference_success": "Video konferans hazır, bağlantı {count} kişiye gönderildi. Şimdi katılabilirsiniz.",
+    "conference_fail": "Üzgünüz, konferans oluşturulamadı. Olay Callu'da hâlâ açık.",
+    "conference_duplicate": "Bu olay için zaten video konferans talep edilmiş.",
+    "conference_requested": "Talebiniz kaydedildi ve Callu'da olay kaydında görünecek. Bu çağrı şimdi sonlanacak."
+}

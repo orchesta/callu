@@ -1,0 +1,19 @@
+namespace Callu.Shared.Models.Auth;
+
+/// <summary>
+/// User profile data
+/// </summary>
+public record UserProfileDto
+{
+    public string UserId { get; init; } = string.Empty;
+    public string FirstName { get; init; } = string.Empty;
+    public string LastName { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
+    public string? PhoneNumber { get; init; }
+    public string? Timezone { get; init; }
+
+    /// <summary>The language this person is written to and spoken to in; null means unset.</summary>
+    public string? Culture { get; init; }
+
+    public DateTime CreatedAt { get; init; }
+}

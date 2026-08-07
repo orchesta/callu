@@ -1,0 +1,519 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  CalluApp — Docker Compose (deploy / prod)                   ║
+# ╠══════════════════════════════════════════════════════════════╣
+# ║  This file uses published images from Docker Hub only —      ║
+# ║  no build context required. Suitable for Portainer, remote   ║
+# ║  hosts, or any environment that pulls this compose file      ║
+# ║  without the source tree.                                    ║
+# ║                                                              ║
+# ║  Quick Start:                                                ║
+# ║    1. cp .env.example .env — set POSTGRES_PASSWORD,          ║
+# ║        JWT_SECRET_KEY, RABBITMQ_PASS, REDIS_PASSWORD         ║
+# ║        (compose refuses to start while any is empty)         ║
+# ║    2. docker compose up -d                                   ║
+# ║    3. Open http://localhost:3000                             ║
+# ║                                                              ║
+# ║  Local development from source?                              ║
+# ║    docker-compose.dev.yml adds build: blocks. It is NOT      ║
+# ║    auto-merged — opt in explicitly:                          ║
+# ║      docker compose -f docker-compose.yml \                  ║
+# ║        -f docker-compose.dev.yml up -d --build               ║
+# ║                                                              ║
+# ║  Using your own PostgreSQL?                                  ║
+# ║    1. Edit .env → set DB_HOST to your server                 ║
+# ║    2. docker compose up -d callu-api callu-worker callu-web  ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# Container stdout is capped so a chatty service (or a log loop during an
+# incident) cannot fill the host disk. This bounds `docker logs` only; the API
+# and Worker additionally write rolling files to the callu_logs volume, which
+# is the copy that survives a container recreate.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILE:-3}"
+
+services:
+
+  # ─── PostgreSQL ─────────────────────────────────────────────
+  # Bundled for convenience. Use your own by changing DB_HOST in .env.
+  # Pinned to a patch version for reproducible pulls. Keep the major at 16 —
+  # a major jump (17+) requires an explicit data migration, never do it here.
+  callu-db:
+    image: postgres:16.14-alpine
+    container_name: callu-db
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - callu_pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-calludb}
+      POSTGRES_USER: ${POSTGRES_USER:-callu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callu} -d ${POSTGRES_DB:-calludb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - callu-internal
+
+  # ─── RabbitMQ (incident escalation, future commands) ───
+  callu-rabbitmq:
+    image: rabbitmq:4.3.2-management-alpine
+    container_name: callu-rabbitmq
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-callu}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+    volumes:
+      - callu_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672"
+    networks:
+      - callu-internal
+
+  # ─── Redis (HybridCache L2 + SignalR backplane + DataProtection key ring) ───
+  # requirepass: Redis holds the DataProtection key ring, which decrypts stored SMTP /
+  # SIP passwords — it must not be readable by anything else that can reach the network.
+  #
+  # Persistence: RDB snapshots (the image's built-in save rules) into callu_redis_data.
+  # Do NOT add `--appendonly yes` here: a Redis that starts with AOF enabled and finds no
+  # AOF file ignores dump.rdb entirely and comes up with an empty dataset — which on an
+  # existing (RDB-only) volume drops the "callu:dp-keys" key ring and makes the stored
+  # SMTP / SIP passwords undecryptable. To move to AOF, do it on a RUNNING instance:
+  #   redis-cli -a "$REDIS_PASSWORD" CONFIG SET appendonly yes && redis-cli ... CONFIG REWRITE
+  # which rewrites the AOF from the live dataset instead of discarding it.
+  #
+  # volatile-lru (NOT allkeys-lru): only evict keys that have a TTL. HybridCache L2
+  # entries expire, so they're evictable under memory pressure; the key ring
+  # ("callu:dp-keys") has NO TTL and is therefore never a candidate for eviction.
+  callu-redis:
+    image: redis:7.4.9-alpine
+    container_name: callu-redis
+    restart: unless-stopped
+    logging: *default-logging
+    # List form, not a shell string: each element is passed as one argv entry, so a
+    # password containing shell metacharacters survives intact. Must still start with
+    # `redis-server` — the image entrypoint only chowns /data and drops from root to the
+    # `redis` user when it sees that as the first argument.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - volatile-lru
+    environment:
+      # Only consumed by the healthcheck below; redis-server reads the password from argv.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    volumes:
+      - callu_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - callu-internal
+
+  # ─── Jaeger trace store bootstrap ────────────────────────────
+  # One-shot: it runs, prepares the volume and exits 0. `docker compose ps -a` shows it as
+  # "Exited (0)" — that is success, not a crash. callu-jaeger waits on that exit code, so if this
+  # ever fails Jaeger deliberately never starts.
+  #
+  # Why it is needed: a fresh named volume is created root:root 0755, but the Jaeger image runs as
+  # uid 10001, so it cannot create its own badger directories and would crash-loop on "permission
+  # denied". It is the only container that runs as root, and only for the length of a chown. Same
+  # image as Jaeger, so it costs no extra pull.
+  callu-jaeger-init:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: callu-jaeger-init
+    user: "0:0"
+    entrypoint: ["sh", "-c", "mkdir -p /badger/keys /badger/values && chown -R 10001:0 /badger && chmod -R 775 /badger"]
+    restart: "no"
+    logging: *default-logging
+    volumes:
+      - callu_jaeger_data:/badger
+    networks:
+      - callu-internal
+
+  # ─── Jaeger (OpenTelemetry OTLP) ─────────────────────────────
+  # OTLP gRPC :4317 is NOT published to the host — only callu-api / callu-worker reach it on the Docker network.
+  # The UI port is bound to 127.0.0.1 only (not LAN/WAN) and Jaeger's own UI has NO authentication,
+  # so it is never the way operators read traces: the API proxies them to the in-app Diagnostics
+  # page behind the normal Callu login (JAEGER_QUERY_URL on callu-api).
+  # Set OPEN_TELEMETRY_ENABLED=false in .env to disable export entirely.
+  #
+  # Storage is badger (on-disk), NOT the all-in-one default of memory: traces are the record of
+  # what happened during an incident, and an in-memory store loses every span on restart — exactly
+  # when you go looking for them. BADGER_EPHEMERAL=false is what moves it off tmpfs onto the volume.
+  # Disk growth is bounded by the span TTL below (default 72h), not by a span count.
+  callu-jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: callu-jaeger
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      callu-jaeger-init:
+        condition: service_completed_successfully
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: badger
+      BADGER_EPHEMERAL: "false"
+      BADGER_DIRECTORY_KEY: /badger/keys
+      BADGER_DIRECTORY_VALUE: /badger/values
+      BADGER_SPAN_STORE_TTL: ${JAEGER_TRACE_TTL:-72h}
+    volumes:
+      - callu_jaeger_data:/badger
+    ports:
+      - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
+    deploy:
+      resources:
+        limits:
+          memory: ${JAEGER_MEMORY_LIMIT:-512m}
+    networks:
+      - callu-internal
+
+  # ─── .NET API ───────────────────────────────────────────────
+  # NOT exposed to host — only accessible via nginx (web).
+  # All periodic jobs run in callu-worker (required) — the API hosts no background timers.
+  callu-api:
+    image: orchestalabs/callu-api:1.0.0
+    container_name: callu-api
+    restart: unless-stopped
+    logging: *default-logging
+    # No 'ports:' — API is internal only, nginx proxies /api/* to it
+    #
+    # Readiness probe, and the gate callu-web's depends_on waits on. `-f` (fail on >=400) is back:
+    # /health now runs ONLY "ready"-tagged checks — today just PostgreSQL — so a 503 means the API
+    # genuinely cannot serve. Optional dependencies (SMTP, Redis) are tagged "external", run on
+    # /health/detail, and can never turn this container unhealthy, which is what previously forced
+    # `-f` to be dropped: an unreachable mail relay would have stopped nginx from ever starting.
+    #
+    # A database outage after boot does mark this unhealthy — correctly; callu-web is long since
+    # running by then, and Docker does not restart on unhealthy. It cannot deadlock a cold start
+    # either: the API runs its migrations before it listens, so "listening but no database" is not
+    # a state it can boot into.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 10 http://localhost:5095/health"]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 90s
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Host=${DB_HOST:-callu-db}; Port=${DB_PORT:-5432}; Database=${POSTGRES_DB:-calludb}; Username=${POSTGRES_USER:-callu}; Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Assembled from parts on purpose, so the password is always applied: a bare host:port would
+      # connect to a requirepass'd Redis unauthenticated (NOAUTH) and silently lose HybridCache L2,
+      # the SignalR backplane and the Data Protection key ring. Point REDIS_HOST/REDIS_PORT at an
+      # external Redis if you have one; REDIS_EXTRA_OPTIONS appends StackExchange.Redis options.
+      # REDIS_CONNECTION_STRING overrides the whole thing — the escape hatch for an external Redis
+      # with no password, an ACL user, or a password these parts cannot express. REDIS_PASSWORD
+      # stays mandatory either way: the callu-redis service below requires it, and Compose
+      # interpolates the entire file.
+      ConnectionStrings__Redis: "${REDIS_CONNECTION_STRING:-${REDIS_HOST:-callu-redis}:${REDIS_PORT:-6379},password=${REDIS_PASSWORD}${REDIS_EXTRA_OPTIONS:-}}"
+      RabbitMQ__Host: ${RABBITMQ_HOST:-callu-rabbitmq}
+      RabbitMQ__Username: ${RABBITMQ_USER:-callu}
+      RabbitMQ__Password: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+      Quartz__UsePersistentStore: ${QUARTZ_USE_PERSISTENT_STORE:-false}
+      Callu__Notifications__VoiceCallCooldownSeconds: ${VOICE_CALL_COOLDOWN_SECONDS:-0}
+      # Every audit entry, one compact JSON object per line, on the callu_logs volume — so an
+      # existing log collector (Filebeat/Vector/Fluent Bit) can ship it to a SIEM without any
+      # extra code. The AuditLogs table stays the record; this is a copy. Set the variable to an
+      # empty string to turn the stream off.
+      Callu__AuditTrailStream__Path: ${AUDIT_TRAIL_STREAM_PATH-/app/logs/audit-.jsonl}
+      Callu__AuditTrailStream__RetainedFileCountLimit: ${AUDIT_TRAIL_STREAM_RETAINED_FILES:-90}
+      # Off unless a host is set. Both hosts forward, because both write audit entries.
+      Callu__AuditSyslog__Host: ${AUDIT_SYSLOG_HOST:-}
+      Callu__AuditSyslog__Port: ${AUDIT_SYSLOG_PORT:-6514}
+      Callu__AuditSyslog__UseTls: ${AUDIT_SYSLOG_USE_TLS:-true}
+      Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
+      Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
+      Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
+      # The HTTP-SMS client only resolves to public IPs (SSRF guard). Set to true if your SMS
+      # gateway lives on a private/LAN address, otherwise those sends are refused.
+      CommunicationSettings__AllowPrivateSmsEndpoint: ${ALLOW_PRIVATE_SMS_ENDPOINT:-false}
+      # Temporary migration aid — keep it false. While it is true, a Voximplant callback that
+      # carries no incident binding is still honoured, so a leaked scenario key can acknowledge
+      # ANY incident. Only turn it on if you upgraded with calls already in flight, and turn it
+      # back off once the scenarios are re-provisioned (Settings → Communications → Provision).
+      # Read by the API only — the Worker has no callback endpoint.
+      Voximplant__AllowLegacyUnboundCallbacks: ${VOXIMPLANT_ALLOW_LEGACY_UNBOUND_CALLBACKS:-false}
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      JwtSettings__Issuer: ${JWT_ISSUER:-CalluApp}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-CalluApp}
+      JwtSettings__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-15}
+      JwtSettings__RefreshTokenExpirationDays: ${JWT_REFRESH_TOKEN_DAYS:-7}
+      Cors__AllowedOrigins__0: ${CORS_ORIGINS:-http://localhost:3000}
+      CalluSettings__ApiUrl: ${CALLU_PUBLIC_URL:-http://localhost:3000}
+      Callu__Security__HstsMaxAgeSeconds: ${HSTS_MAX_AGE_SECONDS:-300}
+      Callu__Security__HstsIncludeSubDomains: ${HSTS_INCLUDE_SUBDOMAINS:-false}
+      Callu__Security__HstsPreload: ${HSTS_PRELOAD:-false}
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Warning}
+      OpenTelemetry__Enabled: ${OPEN_TELEMETRY_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://callu-jaeger:4317}
+      # Read side of the same backend, for the in-app Diagnostics page. Jaeger's own UI has no
+      # authentication, so its port stays unpublished and the API is the only way in — traces are
+      # read with the operator's existing Callu login. Unset it to hide the page.
+      JAEGER_QUERY_URL: ${JAEGER_QUERY_URL:-http://callu-jaeger:16686}
+    depends_on:
+      callu-db:
+        condition: service_healthy
+      callu-redis:
+        condition: service_healthy
+      callu-rabbitmq:
+        condition: service_healthy
+      callu-jaeger:
+        condition: service_started
+    volumes:
+      # DataProtection key ring — written here ONLY when ConnectionStrings:Redis is empty.
+      # In this (bundled-Redis) topology the key ring lives in Redis instead, so the volume
+      # that must survive is callu_redis_data — see the callu-redis notes above.
+      - callu_dpkeys:/app/keys
+      - callu_logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-1g}
+    networks:
+      - callu-internal
+
+  # ─── Background worker (escalations, notification retries, health checks, provider registry) ───
+  callu-worker:
+    image: orchestalabs/callu-worker:1.0.0
+    container_name: callu-worker
+    restart: unless-stopped
+    logging: *default-logging
+    # /health/ready, not /health/live: "live" only proves the process answers HTTP, and this is the
+    # one host that pages — a Worker whose Quartz scheduler stopped answered /health/live happily
+    # while running no job at all. /health/ready fails on the database and the scheduler, and reports
+    # (never fails on) the broker and Redis. callu-web depends on this service with service_started,
+    # so a tightened probe cannot hold the UI back.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # Must stay above HostOptions.ShutdownTimeout (45s, Callu.Worker/Program.cs), which must stay
+    # above the provider AttemptTimeout (15s), or a page is killed mid-dispatch on every restart.
+    stop_grace_period: 60s
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      Worker__HealthPort: "8080"
+      ConnectionStrings__DefaultConnection: >-
+        Host=${DB_HOST:-callu-db}; Port=${DB_PORT:-5432}; Database=${POSTGRES_DB:-calludb}; Username=${POSTGRES_USER:-callu}; Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Same parts-based assembly as callu-api — see the note there. Must resolve to the SAME
+      # Redis: both hosts read the one Data Protection key ring.
+      ConnectionStrings__Redis: "${REDIS_CONNECTION_STRING:-${REDIS_HOST:-callu-redis}:${REDIS_PORT:-6379},password=${REDIS_PASSWORD}${REDIS_EXTRA_OPTIONS:-}}"
+      RabbitMQ__Host: ${RABBITMQ_HOST:-callu-rabbitmq}
+      RabbitMQ__Username: ${RABBITMQ_USER:-callu}
+      RabbitMQ__Password: ${RABBITMQ_PASS:?Set RABBITMQ_PASS in .env}
+      Quartz__UsePersistentStore: ${QUARTZ_USE_PERSISTENT_STORE:-false}
+      Callu__Notifications__VoiceCallCooldownSeconds: ${VOICE_CALL_COOLDOWN_SECONDS:-0}
+      # Every audit entry, one compact JSON object per line, on the callu_logs volume — so an
+      # existing log collector (Filebeat/Vector/Fluent Bit) can ship it to a SIEM without any
+      # extra code. The AuditLogs table stays the record; this is a copy. Set the variable to an
+      # empty string to turn the stream off.
+      Callu__AuditTrailStream__Path: ${AUDIT_TRAIL_STREAM_PATH-/app/logs/audit-.jsonl}
+      Callu__AuditTrailStream__RetainedFileCountLimit: ${AUDIT_TRAIL_STREAM_RETAINED_FILES:-90}
+      # Off unless a host is set. Both hosts forward, because both write audit entries.
+      Callu__AuditSyslog__Host: ${AUDIT_SYSLOG_HOST:-}
+      Callu__AuditSyslog__Port: ${AUDIT_SYSLOG_PORT:-6514}
+      Callu__AuditSyslog__UseTls: ${AUDIT_SYSLOG_USE_TLS:-true}
+      Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
+      Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
+      Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
+      # Off unless a path is set. When it is on, retention will not delete an audit entry that has
+      # not reached the archive yet — see AUDIT_ARCHIVE_PATH in .env.example before enabling it.
+      Callu__AuditArchive__Path: ${AUDIT_ARCHIVE_PATH:-}
+      Callu__AuditArchive__AfterDays: ${AUDIT_ARCHIVE_AFTER_DAYS:-2}
+      Callu__AuditArchive__MaxDaysPerRun: ${AUDIT_ARCHIVE_MAX_DAYS_PER_RUN:-31}
+      # Retention runs on this host only. 0 keeps rows forever, which is the default:
+      # every table below grows per incident, so on a small VPS set the ones you need.
+      Callu__Retention__NotificationDays: ${RETENTION_NOTIFICATION_DAYS:-0}
+      Callu__Retention__AuditLogDays: ${RETENTION_AUDIT_LOG_DAYS:-0}
+      Callu__Retention__WebhookCaptureDays: ${RETENTION_WEBHOOK_CAPTURE_DAYS:-0}
+      Callu__Retention__CallLogDays: ${RETENTION_CALL_LOG_DAYS:-0}
+      Callu__Retention__StatusPageViewDays: ${RETENTION_STATUS_PAGE_VIEW_DAYS:-0}
+      Callu__Retention__IncidentTimelineEventDays: ${RETENTION_INCIDENT_TIMELINE_EVENT_DAYS:-0}
+      CommunicationSettings__AllowPrivateSmsEndpoint: ${ALLOW_PRIVATE_SMS_ENDPOINT:-false}
+      Serilog__MinimumLevel__Default: ${LOG_LEVEL:-Warning}
+      OpenTelemetry__Enabled: ${OPEN_TELEMETRY_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://callu-jaeger:4317}
+    depends_on:
+      callu-db:
+        condition: service_healthy
+      callu-redis:
+        condition: service_healthy
+      callu-rabbitmq:
+        condition: service_healthy
+      callu-jaeger:
+        condition: service_started
+    volumes:
+      # Shared DataProtection key ring with the API container — both processes encrypt SMTP
+      # and SIP passwords with the same key set, and the Worker's voice retry job writes
+      # call-token blobs the API must later decrypt. Same caveat as on callu-api: this path
+      # is only used when ConnectionStrings:Redis is empty; otherwise the key ring is in Redis.
+      - callu_dpkeys:/app/keys
+      # The Worker is the only host that pages. Its log is the record of why a page did or did
+      # not go out, so it gets the same rolling file volume as the API rather than living only
+      # in `docker logs`, which a container recreate discards.
+      - callu_logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-768m}
+    networks:
+      - callu-internal
+
+  # ─── Web UI (nginx) ────────────────────────────────────────
+  # Single entry point: serves SPA + proxies /api/* to API.
+  callu-web:
+    image: orchestalabs/callu-web:1.0.0
+    container_name: callu-web
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      # service_healthy, not service_started: the API runs migrations + seeding before it
+      # starts listening, and nginx would otherwise 502 every /api call in that window.
+      callu-api:
+        condition: service_healthy
+      callu-worker:
+        condition: service_started
+    # TLS: the published callu-web image serves plain HTTP on 3000 (its nginx.conf is baked in
+    # and cannot be edited without rebuilding). For HTTPS, terminate TLS at a reverse proxy in
+    # front of this service (Caddy, Traefik, nginx, or a cloud load balancer) pointing at
+    # callu-web:3000 — the standard self-host pattern. If you build the web image from source
+    # (docker-compose.dev.yml), you can instead enable the HTTPS server block in nginx.conf and
+    # mount your certs there.
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEMORY_LIMIT:-256m}
+    networks:
+      - callu-internal
+
+  # ── Self-hosted voice paging (optional) ─────────────────────────────────────────────────
+  # Off unless you ask for it: `docker compose --profile voice up -d`. Everything below is
+  # inert without that flag, so an install that pages through a cloud provider is unaffected.
+  #
+  # Two things to set before it can work at all, both in .env:
+  #   VOICE_API_TOKEN, VOICE_ARI_PASSWORD, VOICE_ALLOWED_PREFIXES  (the container refuses to
+  #     start without them — there is no safe default for "whose numbers may I dial")
+  #   EXTERNAL_MEDIA_ADDRESS — the address your carrier reaches this host on. This is bridged
+  #     Docker, which is NAT: without it the call connects and nobody hears anything.
+  #
+  # Then add it in the product under Settings -> Communications as a `callu-voice` provider,
+  # with the callback address http://callu-api:5095 — the container's callback guard refuses
+  # loopback outright, so 127.0.0.1 never works from anywhere.
+  #
+  # The carrier is set in the panel and nowhere else: add the SIP trunk under
+  # Settings -> Communications and pick it on the provider. Callu pushes it to the container
+  # and keeps checking that it is still there, so a restart or an image bump does not need
+  # anyone to do anything. The container itself starts with no carrier, by design.
+  callu-voice:
+    profiles: ["voice"]
+    image: orchestalabs/callu-voice:1.0.0
+    container_name: callu-voice
+    logging: *default-logging
+
+    # Non-root, every capability dropped. SYS_NICE is required to exec Asterisk at all.
+    user: "10001:10001"
+    cap_drop: [ALL]
+    cap_add: [SYS_NICE]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${VOICE_MEM_LIMIT:-3g}
+    mem_reservation: 1g
+
+    ports:
+      # The call API is NOT published: callu-api reaches it over callu-internal, and nothing
+      # outside this compose project needs it.
+      - "${SIP_PORT:-5060}:5060/udp"
+      - "${RTP_START:-10000}-${RTP_END:-10099}:${RTP_START:-10000}-${RTP_END:-10099}/udp"
+
+    environment:
+      API_TOKEN: ${VOICE_API_TOKEN:-}
+      ALLOWED_PREFIXES: ${VOICE_ALLOWED_PREFIXES:-}
+      MAX_CONCURRENT_CALLS: ${VOICE_MAX_CONCURRENT_CALLS:-30}
+      MAX_REQUEST_BYTES: ${VOICE_MAX_REQUEST_BYTES:-262144}
+
+      ARI_USERNAME: ${VOICE_ARI_USERNAME:-callu}
+      ARI_PASSWORD: ${VOICE_ARI_PASSWORD:-}
+      ARI_URL: http://127.0.0.1:8088/ari
+      ARI_WEBSOCKET: ws://127.0.0.1:8088/ari/events
+      TTS_URL: http://127.0.0.1:8080
+
+      # No carrier here. The container starts without one; the panel is where it is set, and
+      # Callu re-sends it whenever the container has lost it.
+      ENDPOINT_FORMAT: ${ENDPOINT_FORMAT:-PJSIP/%s@trunk}
+
+      EXTERNAL_MEDIA_ADDRESS: ${EXTERNAL_MEDIA_ADDRESS:-}
+      EXTERNAL_SIGNALING_ADDRESS: ${EXTERNAL_SIGNALING_ADDRESS:-}
+      RTP_START: ${RTP_START:-10000}
+      RTP_END: ${RTP_END:-10099}
+
+      DETECT_MACHINE: ${DETECT_MACHINE:-false}
+      MAX_CALL_DURATION: ${MAX_CALL_DURATION:-120s}
+      SILENCE_TIMEOUT: ${SILENCE_TIMEOUT:-15s}
+      MAX_REPROMPTS: ${MAX_REPROMPTS:-2}
+      DIAL_TIMEOUT: ${DIAL_TIMEOUT:-45s}
+
+      TTS_THREADS: ${TTS_THREADS:-}
+      # LRU ceiling for the rendered-audio volume. Keep it under the free space actually
+      # available; 0 disables the sweep.
+      TTS_CACHE_MAX_BYTES: ${TTS_CACHE_MAX_BYTES:-2147483648}
+
+    volumes:
+      # The TTS model (~400MB), so a recreate does not re-download it.
+      - callu_voice_models:/cache
+      # Rendered audio. A full filesystem stops every page, so this is not optional.
+      - callu_voice_sounds:/var/lib/asterisk/sounds/callu
+
+    healthcheck:
+      # 503 until ARI and the synthesizer are both up, so it is not healthy until it can
+      # actually place a call.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+    # Compose kills the container 10s after SIGTERM unless told otherwise, which lands inside
+    # the drain: a responder's acknowledgement would be discarded on every `compose down`.
+    stop_grace_period: 75s
+    restart: unless-stopped
+    networks: [callu-internal]
+
+volumes:
+  callu_pgdata:
+  callu_dpkeys:
+  callu_logs:
+  callu_redis_data:
+  callu_rabbitmq_data:
+  callu_jaeger_data:
+  callu_voice_models:
+  callu_voice_sounds:
+
+
+networks:
+  callu-internal:
+    driver: bridge
+    # Fixed, so a second compose project can join it by name. The self-hosted voice stack
+    # (orchestalabs/callu-voice) needs to reach callu-api directly: its callback guard refuses
+    # loopback outright, so 127.0.0.1 never works and a shared network is the way in.
+    name: callu-internal
