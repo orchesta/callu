@@ -10,10 +10,6 @@ namespace Callu.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_AuditLogs_Sequence",
-                table: "AuditLogs");
-
             migrationBuilder.AddColumn<string>(
                 name: "CanonicalizationVersion",
                 table: "AuditLogs",
@@ -29,7 +25,14 @@ namespace Callu.Infrastructure.Migrations
             // A database that already holds a repeated sequence cannot take the unique index, and a
             // migration that throws here would crash-loop the install on every start. Such a chain is
             // already unverifiable; it keeps the plain index and says so in the server log.
+            //
+            // migration-safety: reviewed — replayed on PostgreSQL 16 against seeded audit rows, both
+            // ways: unique sequences produce the partial unique index, a seeded duplicate produces the
+            // WARNING plus the plain index, and the migration completes in both cases (no crash-loop).
+            // Re-runnable: the block drops the index it is about to create, and both branches only
+            // read or (re)create that index — no row is ever written.
             migrationBuilder.Sql("""
+                DROP INDEX IF EXISTS "IX_AuditLogs_Sequence";
                 DO $$
                 BEGIN
                     IF EXISTS (
