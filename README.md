@@ -4,6 +4,31 @@ Self-hosted incident management and on-call scheduling. Single-tenant: one deplo
 
 Stack: .NET 10, React 19, PostgreSQL, with optional Redis and RabbitMQ.
 
+**Website:** [callu.app](https://callu.app) · **User guide:** [callu.app/docs](https://callu.app/docs) · **Operator docs:** [callu.app/docs/technical](https://callu.app/docs/technical)
+
+![Dashboard — incident counts, MTTA/MTTR, and who is on call right now](docs/screenshots/dashboard.png)
+
+<details>
+<summary><strong>More screenshots</strong> — incidents, paging timeline, schedules, voice preview</summary>
+
+An incident's timeline records the whole paging chain — escalated, phone ringing, connected, acknowledged by keypress:
+
+![Incident timeline with the voice paging chain](docs/screenshots/incident-timeline.png)
+
+The incident list, with bulk acknowledge/resolve:
+
+![Incident list](docs/screenshots/incidents.png)
+
+Timezone-aware on-call schedules:
+
+![On-call schedules](docs/screenshots/schedules.png)
+
+The TTS preview speaks any text through the same synthesizer a real call uses — here it read "Press 1" as "Press one":
+
+![TTS preview rendering text to speech](docs/screenshots/tts-preview.png)
+
+</details>
+
 ## Features
 
 ### Incident management
