@@ -4,7 +4,7 @@ Self-hosted incident management and on-call scheduling. Single-tenant: one deplo
 
 Stack: .NET 10, React 19, PostgreSQL, with optional Redis and RabbitMQ.
 
-**Website:** [callu.app](https://callu.app) · **User guide:** [callu.app/docs](https://callu.app/docs) · **Operator docs:** [callu.app/docs/technical](https://callu.app/docs/technical)
+**Website:** [callu.app](https://callu.app) · **User guide:** [callu.app/docs](https://callu.app/docs) · **Operator docs:** [callu.app/docs/technical](https://callu.app/docs/technical) **E-mail:** info@callu.app 
 
 ![Dashboard — incident counts, MTTA/MTTR, and who is on call right now](docs/screenshots/dashboard.png)
 
