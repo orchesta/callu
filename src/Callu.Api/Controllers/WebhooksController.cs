@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Callu.Application.Services;
 using Callu.Shared.Results;
 using Microsoft.AspNetCore.Authorization;
+using Callu.Shared.Logging;
 
 namespace Callu.Api.Controllers;
 
@@ -43,14 +44,14 @@ public class WebhooksController(
         var sourceIp = HttpContext.Connection.RemoteIpAddress?.ToString();
 
         logger.LogDebug("Webhook received: Token={Token}, Method={Method}, ContentType={ContentType}, BodyLength={BodyLength}",
-            token, Request.Method, contentType, body.Length);
+            LogSafe.OneLine(token), LogSafe.OneLine(Request.Method), LogSafe.OneLine(contentType), body.Length);
 
         var result = await webhookService.ProcessWebhookAsync(
             token, presentedApiKey, Request.Method, contentType, body, headers, sourceIp);
 
         if (!result.Success)
         {
-            logger.LogWarning("Webhook processing failed: {Message}", result.Message);
+            logger.LogWarning("Webhook processing failed: {Message}", LogSafe.OneLine(result.Message));
             return BadRequest(ApiResponse.Fail(result.Message ?? "Webhook processing failed"));
         }
 

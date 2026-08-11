@@ -435,7 +435,7 @@ public class HealthCheckExecutor(
     /// <summary>
     /// Adds custom headers from JSON, handling Content-Type separately.
     /// </summary>
-    private static void AddCustomHeaders(HttpRequestMessage request, string? headersJson)
+    private void AddCustomHeaders(HttpRequestMessage request, string? headersJson)
     {
         if (string.IsNullOrEmpty(headersJson)) return;
 
@@ -459,8 +459,11 @@ public class HealthCheckExecutor(
                 request.Headers.TryAddWithoutValidation(key, value);
             }
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            logger.LogWarning(ex,
+                "Custom health-check headers are not readable JSON, so the probe was sent without any "
+                + "of them — a target that needs an auth header will answer as if it were down");
         }
     }
 }

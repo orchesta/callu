@@ -9,6 +9,7 @@ using Callu.Shared.Models.Conference;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Persistence.CalluVoice;
 
@@ -39,7 +40,7 @@ public sealed class CalluVoiceCallbackPersistence(
             logger.LogInformation(
                 "callu-voice callback '{Status}' for incident {IncidentId} lost the insert race for call {CallId} — "
                 + "re-applying it on top of the row the other delivery wrote.",
-                callback.Status, ticket.IncidentId, ticket.CallId);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId, ticket.CallId);
 
             return await ApplyAsync(ticket, callback, cancellationToken);
         }
@@ -56,7 +57,7 @@ public sealed class CalluVoiceCallbackPersistence(
             logger.LogWarning(
                 "callu-voice reported status '{Status}' for incident {IncidentId}, which this version does not know. "
                 + "It is recorded as a failed call, so the retry chain keeps paging rather than going quiet.",
-                callback.Status, ticket.IncidentId);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -68,7 +69,7 @@ public sealed class CalluVoiceCallbackPersistence(
             logger.LogError(
                 "callu-voice callback '{Status}' dropped: incident {IncidentId} no longer exists, so the keypress on "
                 + "the call to {Phone} is recorded nowhere.",
-                callback.Status, ticket.IncidentId, ticket.PhoneNumber);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId, PiiRedactor.Phone(ticket.PhoneNumber));
             return CalluVoiceCallbackApplication.IncidentNotFound;
         }
 
@@ -81,7 +82,7 @@ public sealed class CalluVoiceCallbackPersistence(
         {
             logger.LogInformation(
                 "callu-voice callback '{Status}' for incident {IncidentId} was already applied to call {CallId} — treating it as a retry.",
-                callback.Status, ticket.IncidentId, ticket.CallId);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId, ticket.CallId);
             return CalluVoiceCallbackApplication.AlreadyApplied;
         }
 
@@ -91,7 +92,7 @@ public sealed class CalluVoiceCallbackPersistence(
         {
             logger.LogInformation(
                 "callu-voice callback '{Status}' for incident {IncidentId} arrived after call {CallId} had already ended as {Ended} — ignored.",
-                callback.Status, ticket.IncidentId, ticket.CallId, existing.Status);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId, ticket.CallId, existing.Status);
             return CalluVoiceCallbackApplication.OutOfOrder;
         }
 
@@ -237,7 +238,7 @@ public sealed class CalluVoiceCallbackPersistence(
             logger.LogWarning(
                 "callu-voice: attempt {Attempt} of {Max} to {Phone} for incident {IncidentId} ended without an answer; "
                 + "the retry chain stops here and nobody else is called on this responder's behalf.",
-                callLog.AttemptNumber, MaxRetryAttempts, callLog.PhoneNumber, callLog.IncidentId);
+                callLog.AttemptNumber, MaxRetryAttempts, PiiRedactor.Phone(callLog.PhoneNumber), callLog.IncidentId);
             return;
         }
 
@@ -274,7 +275,8 @@ public sealed class CalluVoiceCallbackPersistence(
 
         if (matches.Count > 1)
             logger.LogWarning(
-                "Phone {Phone} matches more than one user; the keypress is recorded without an actor id", phone);
+                "Phone {Phone} matches more than one user; the keypress is recorded without an actor id",
+                PiiRedactor.Phone(phone));
 
         return default;
     }
@@ -498,7 +500,7 @@ public sealed class CalluVoiceCallbackPersistence(
         logger.LogWarning(
             "Responder-initiated escalation for incident {IncidentId} PAGED NOBODY. {Recipient} was told on the call "
             + "that the escalation had started; unless somebody is paged by hand, nobody else is coming.",
-            incidentId, recipient);
+            incidentId, PiiRedactor.Recipient(recipient));
 
         await AppendTimelineAsync(
             incidentId,
@@ -524,7 +526,7 @@ public sealed class CalluVoiceCallbackPersistence(
         {
             logger.LogError(ex,
                 "Could not create the conference room {Recipient} asked for on the call for incident {IncidentId}",
-                recipient, incidentId);
+                PiiRedactor.Recipient(recipient), incidentId);
             result = new ConferenceRoomResult { Success = false, Error = ex.Message };
         }
 

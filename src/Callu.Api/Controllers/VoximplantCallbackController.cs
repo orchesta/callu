@@ -8,6 +8,7 @@ using Callu.Shared.Models.Communication;
 using Callu.Shared.Results;
 using Callu.Shared.Models.Conference;
 using Microsoft.AspNetCore.Authorization;
+using Callu.Shared.Logging;
 
 namespace Callu.Api.Controllers;
 
@@ -68,7 +69,7 @@ public class VoximplantCallbackController(
 
         if (!replayGuard.TryRegister(ts, nonce))
         {
-            logger.LogWarning("VoxEngine request rejected: replayed nonce {Nonce}", nonce);
+            logger.LogWarning("VoxEngine request rejected: replayed nonce {Nonce}", LogSafe.OneLine(nonce));
             return Unauthorized(new { error = Messages.Get("voximplant.invalidApiKey") });
         }
 
@@ -85,7 +86,7 @@ public class VoximplantCallbackController(
     {
         logger.LogInformation("call-data request: keyFp={KeyFp}, token={Token}",
             ScenarioKeyFingerprint(scenarioKey ?? string.Empty),
-            token[..Math.Min(8, token.Length)] + "...");
+            LogSafe.OneLine(token[..Math.Min(8, token.Length)] + "..."));
 
         if (string.IsNullOrEmpty(scenarioKey))
         {
@@ -99,12 +100,12 @@ public class VoximplantCallbackController(
         switch (outcome.Status)
         {
             case CallTokenConsumeStatus.AlreadyConsumed:
-                logger.LogWarning("Call token replay attempt: {Token}", token[..Math.Min(8, token.Length)] + "...");
+                logger.LogWarning("Call token replay attempt: {Token}", LogSafe.OneLine(token[..Math.Min(8, token.Length)] + "..."));
                 return StatusCode(StatusCodes.Status410Gone,
                     ApiResponse.Fail(Messages.Get("voximplant.tokenInvalid")));
             case CallTokenConsumeStatus.Expired:
             case CallTokenConsumeStatus.NotFound:
-                logger.LogWarning("Call token invalid or expired: {Token}", token[..Math.Min(8, token.Length)] + "...");
+                logger.LogWarning("Call token invalid or expired: {Token}", LogSafe.OneLine(token[..Math.Min(8, token.Length)] + "..."));
                 return NotFound(ApiResponse.Fail(Messages.Get("voximplant.tokenInvalid")));
             case CallTokenConsumeStatus.ScenarioKeyRejected:
                 return Unauthorized(new { error = Messages.Get("voximplant.invalidApiKey") });
@@ -113,7 +114,7 @@ public class VoximplantCallbackController(
         var callData = outcome.Data!;
         logger.LogInformation(
             "Voximplant.CallDataAccess: token={TokenPrefix} incident={IncidentId} keyFp={KeyFp}",
-            token[..Math.Min(8, token.Length)] + "...",
+            LogSafe.OneLine(token[..Math.Min(8, token.Length)] + "..."),
             callData.IncidentId,
             ScenarioKeyFingerprint(scenarioKey));
 
@@ -164,7 +165,7 @@ public class VoximplantCallbackController(
             "Communications → Provision). To restore the previous, unbound behaviour while you " +
             "schedule that, set Voximplant:AllowLegacyUnboundCallbacks=true; note this lets a " +
             "leaked scenario key acknowledge any incident.",
-            what, status);
+            what, LogSafe.OneLine(status));
     }
 
     /// <summary>Status update from VoxEngine (acknowledged, escalated, failed, etc.).</summary>
@@ -191,7 +192,7 @@ public class VoximplantCallbackController(
             {
                 logger.LogWarning(
                     "Voximplant callback rejected: body claims incident {Claimed} but the call token is bound to {Bound}",
-                    callback.IncidentId, boundIncidentId);
+                    LogSafe.OneLine(callback.IncidentId), LogSafe.OneLine(boundIncidentId));
                 return Unauthorized(new { error = Messages.Get("voximplant.invalidApiKey") });
             }
 
@@ -208,7 +209,7 @@ public class VoximplantCallbackController(
             logger.LogWarning(
                 "Voximplant callback '{Status}' accepted WITHOUT a per-call token for incident {IncidentId} " +
                 "(Voximplant:AllowLegacyUnboundCallbacks is on). Re-provision the scenarios and turn it off.",
-                callback.Status, callback.IncidentId);
+                LogSafe.OneLine(callback.Status), LogSafe.OneLine(callback.IncidentId));
         }
 
         try
@@ -219,7 +220,7 @@ public class VoximplantCallbackController(
                 logger.LogWarning(
                     "Responder-initiated escalation for incident {IncidentId} paged nobody; telling the scenario to play the "
                     + "honest prompt (the incident is still open — escalate it in Callu).",
-                    callback.IncidentId);
+                    LogSafe.OneLine(callback.IncidentId));
 
             // success says the callback was APPLIED. escalation_paged says what a press-2 ACHIEVED, and
             // it is the only thing the scenario may confirm out loud: a 2xx has always been true for an

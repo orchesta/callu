@@ -16,6 +16,7 @@ using Callu.Infrastructure.Identity;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Shared.Localization;
 using Callu.Shared.Models.Auth;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -77,7 +78,7 @@ public class AuthService(
 
         if (await userManager.IsLockedOutAsync(user))
         {
-            logger.LogWarning("Login attempt for locked account: {Email}", request.Email);
+            logger.LogWarning("Login attempt for locked account: {Email}", PiiRedactor.Email(request.Email));
             await TryAuditAsync(user.Id, AuditAction.LoginFailed, "Account locked out", cancellationToken);
             return new AuthResponse
             {
@@ -93,7 +94,7 @@ public class AuthService(
 
             logger.LogWarning(
                 "Login failed for {Email}: Invalid password, IP={IP}, UA={UserAgent}",
-                request.Email,
+                PiiRedactor.Email(request.Email),
                 httpContextAccessor.HttpContext?.Connection.RemoteIpAddress,
                 httpContextAccessor.HttpContext?.Request.Headers.UserAgent.FirstOrDefault());
 
@@ -121,7 +122,7 @@ public class AuthService(
 
         logger.LogInformation(
             "User logged in: {Email}, IP={IP}, UA={UserAgent}",
-            user.Email,
+            PiiRedactor.Email(user.Email),
             httpContextAccessor.HttpContext?.Connection.RemoteIpAddress,
             httpContextAccessor.HttpContext?.Request.Headers.UserAgent.FirstOrDefault());
 
@@ -212,7 +213,7 @@ public class AuthService(
             var roleClaims = await GetRoleClaimsAsync(roles);
             var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
 
-            logger.LogInformation("Token refreshed for user {Email}", user.Email);
+            logger.LogInformation("Token refreshed for user {Email}", PiiRedactor.Email(user.Email));
 
             return new AuthResponse
             {

@@ -162,7 +162,7 @@ public class PostmortemService(
                 newValues: entity.Status.ToString(),
                 cancellationToken: ct);
 
-            logger.LogInformation("Postmortem {Action}: {Title} ({From} → {To})",
+            logger.LogInformation("Postmortem {Action}: {Title} ({FromStatus} → {ToStatus})",
                 action, entity.Title, fromStatus, entity.Status);
             return true;
         }, ct);

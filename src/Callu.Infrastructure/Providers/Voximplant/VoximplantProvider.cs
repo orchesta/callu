@@ -9,6 +9,7 @@ using Callu.Shared.Models.Notifications;
 using Microsoft.Extensions.Logging;
 
 using Callu.Shared.Localization;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Providers.Voximplant;
 
@@ -163,7 +164,7 @@ public class VoximplantProvider(
                 var token = await callDataService.CreateCallTokenAsync(callData);
                 customData = JsonSerializer.Serialize(new { call_token = token });
                 logger.LogInformation("Created call token for incident {IncidentId}, calling {Phone}",
-                    request.IncidentId, request.Destination);
+                    request.IncidentId, PiiRedactor.Phone(request.Destination));
             }
             
             var url = BuildPlatformUrl("StartScenarios", new Dictionary<string, string>

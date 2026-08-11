@@ -101,8 +101,13 @@ try
 
     Messages.Initialize(
         Path.Combine(builder.Environment.ContentRootPath, "Resources", "Locales"));
-    TtsDefaults.Initialize(
-        Path.Combine(builder.Environment.ContentRootPath, "Resources", "TtsDefaults"));
+    foreach (var failure in TtsDefaults.Initialize(
+                 Path.Combine(builder.Environment.ContentRootPath, "Resources", "TtsDefaults")))
+    {
+        app.Logger.LogError(
+            "Spoken defaults for {LanguageCode} did not load ({Reason}), so a call in that language "
+            + "will fall back to English wording", failure.LanguageCode, failure.Reason);
+    }
 
     app.MapGet("/health/live", () => Results.Ok(new
     {

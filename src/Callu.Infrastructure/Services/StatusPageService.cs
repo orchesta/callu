@@ -11,6 +11,7 @@ using Callu.Shared.Exceptions;
 using Callu.Shared.Models.StatusPages;
 using System.Security.Cryptography;
 using System.Text;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -339,8 +340,8 @@ public class StatusPageService(
 
             for (var d = start; d <= end; d = d.AddDays(1))
             {
-                if (!incidentDayMap.ContainsKey(d) ||
-                    statusPriority.GetValueOrDefault(incidentDayMap[d], 0) < statusPriority.GetValueOrDefault(incStatus, 0))
+                if (!incidentDayMap.TryGetValue(d, out var dayStatus) ||
+                    statusPriority.GetValueOrDefault(dayStatus, 0) < statusPriority.GetValueOrDefault(incStatus, 0))
                 {
                     incidentDayMap[d] = incStatus;
                 }
@@ -468,7 +469,7 @@ public class StatusPageService(
                 CreatedAt = DateTime.UtcNow
             };
             await subscriberRepo.AddAsync(subscriber, cancellationToken);
-            logger.LogInformation("New (unconfirmed) subscriber {Email} for status page {PageId}", email, pageId);
+            logger.LogInformation("New (unconfirmed) subscriber {Email} for status page {PageId}", PiiRedactor.Email(email), pageId);
             return true;
         }, cancellationToken);
 
@@ -485,7 +486,7 @@ public class StatusPageService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Confirmation email send failed for {Email} on status page {PageId}", email, pageId);
+            logger.LogWarning(ex, "Confirmation email send failed for {Email} on status page {PageId}", PiiRedactor.Email(email), pageId);
         }
 
         return true;
@@ -510,7 +511,7 @@ public class StatusPageService(
             subscriber.ConfirmationTokenHash = null;
             subscriber.ConfirmationTokenExpiresAt = null;
             subscriber.UpdatedAt = DateTime.UtcNow;
-            logger.LogInformation("Subscription confirmed: {Email} on page {PageId}", subscriber.Email, subscriber.StatusPageId);
+            logger.LogInformation("Subscription confirmed: {Email} on page {PageId}", PiiRedactor.Email(subscriber.Email), subscriber.StatusPageId);
             return true;
         }, cancellationToken);
     }
@@ -544,7 +545,7 @@ public class StatusPageService(
             subscriber.IsDeleted = true;
             subscriber.UnsubscribedAt = DateTime.UtcNow;
             subscriber.UpdatedAt = DateTime.UtcNow;
-            logger.LogInformation("Unsubscribed via token: {Email} on page {PageId}", subscriber.Email, subscriber.StatusPageId);
+            logger.LogInformation("Unsubscribed via token: {Email} on page {PageId}", PiiRedactor.Email(subscriber.Email), subscriber.StatusPageId);
             return true;
         }, cancellationToken);
     }

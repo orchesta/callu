@@ -88,8 +88,13 @@ app.UseCalluRedisGuard();
 Callu.Shared.Localization.Messages.Initialize(
     Path.Combine(builder.Environment.ContentRootPath, "Resources", "Locales"));
 
-Callu.Shared.Localization.TtsDefaults.Initialize(
-    Path.Combine(builder.Environment.ContentRootPath, "Resources", "TtsDefaults"));
+foreach (var failure in Callu.Shared.Localization.TtsDefaults.Initialize(
+             Path.Combine(builder.Environment.ContentRootPath, "Resources", "TtsDefaults")))
+{
+    app.Logger.LogError(
+        "Spoken defaults for {LanguageCode} did not load ({Reason}), so a call in that language "
+        + "will fall back to English wording", failure.LanguageCode, failure.Reason);
+}
 
 await app.InitializeDatabaseAsync();
 

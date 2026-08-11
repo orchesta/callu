@@ -39,4 +39,21 @@ public class UrlSanitizerTests
     {
         Assert.False(UrlSanitizer.IsValidHealthCheckUrl(url));
     }
+
+    [Theory]
+    [InlineData("http://0177.0.0.1/")]
+    public void Blocks_Octal_Encoded_Loopback(string url)
+    {
+        Assert.False(UrlSanitizer.IsValidHealthCheckUrl(url));
+    }
+
+    // 9 and 8 are not octal digits, so these throw while being decoded rather than resolving to an
+    // address the guard can judge. They must still be refused.
+    [Theory]
+    [InlineData("http://0999.0.0.1/")]
+    [InlineData("http://08.08.08.08/")]
+    public void Blocks_Dotted_Digit_Hosts_That_Cannot_Be_Decoded(string url)
+    {
+        Assert.False(UrlSanitizer.IsValidHealthCheckUrl(url));
+    }
 }

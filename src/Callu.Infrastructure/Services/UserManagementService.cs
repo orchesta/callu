@@ -16,6 +16,7 @@ using Callu.Shared.Validation;
 using FluentValidation;
 using FluentValidation.Results;
 using Callu.Domain.Enums;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -128,7 +129,7 @@ public class UserManagementService(
                 description: "User created",
                 cancellationToken: cancellationToken);
 
-            logger.LogInformation("Created user {Email} with role {Role}", email, role);
+            logger.LogInformation("Created user {Email} with role {Role}", PiiRedactor.Email(email), role);
 
             return ((bool, string?, UserDto?))(true, null, MapToDto(user, role));
         }, cancellationToken);
@@ -194,11 +195,11 @@ public class UserManagementService(
             {
                 logger.LogWarning(
                     "Invited user {Email} with role {Role}, but the invitation email could not be sent; "
-                    + "the link has to be delivered by hand", email, role);
+                    + "the link has to be delivered by hand", PiiRedactor.Email(email), role);
             }
             else
             {
-                logger.LogInformation("Invited user {Email} with role {Role}", email, role);
+                logger.LogInformation("Invited user {Email} with role {Role}", PiiRedactor.Email(email), role);
             }
 
             // The link goes back only when the email did not: it is a password-reset token, and an
@@ -278,7 +279,7 @@ public class UserManagementService(
             cancellationToken: cancellationToken);
 
         logger.LogInformation(
-            "Resent invitation to user {UserId} ({Email}); email sent: {EmailSent}", userId, user.Email, emailSent);
+            "Resent invitation to user {UserId} ({Email}); email sent: {EmailSent}", userId, PiiRedactor.Email(user.Email), emailSent);
         return (true, emailSent, emailSent ? null : inviteLink);
     }
 
@@ -459,7 +460,7 @@ public class UserManagementService(
 
         if (user is null || user.IsDeleted || !user.EmailConfirmed)
         {
-            logger.LogInformation("Password reset requested for unknown/inactive email {Email}", email);
+            logger.LogInformation("Password reset requested for unknown/inactive email {Email}", PiiRedactor.Email(email));
             return;
         }
 
@@ -471,9 +472,9 @@ public class UserManagementService(
 
         var sent = await emailService.SendPasswordResetAsync(email, resetLink, cancellationToken);
         if (sent)
-            logger.LogInformation("Password reset email sent to {Email}", email);
+            logger.LogInformation("Password reset email sent to {Email}", PiiRedactor.Email(email));
         else
-            logger.LogWarning("Password reset email send returned false for {Email} (SMTP unconfigured or send failed)", email);
+            logger.LogWarning("Password reset email send returned false for {Email} (SMTP unconfigured or send failed)", PiiRedactor.Email(email));
     }
 
     public async Task<(bool Success, string? ErrorMessage)> ResetPasswordAsync(
@@ -489,7 +490,7 @@ public class UserManagementService(
 
             if (!user.EmailConfirmed)
             {
-                logger.LogInformation("Reset password rejected for unconfirmed account {Email}; use accept-invitation", email);
+                logger.LogInformation("Reset password rejected for unconfirmed account {Email}; use accept-invitation", PiiRedactor.Email(email));
                 return ((bool, string?))(false, "Account is pending invitation acceptance.");
             }
 
@@ -503,7 +504,7 @@ public class UserManagementService(
             await userManager.UpdateSecurityStampAsync(user);
             await refreshTokenRepo.RevokeAllActiveForUserAsync(user.Id, "password-reset", cancellationToken);
 
-            logger.LogInformation("Password reset successful for user {Email}; sessions revoked", email);
+            logger.LogInformation("Password reset successful for user {Email}; sessions revoked", PiiRedactor.Email(email));
             return ((bool, string?))(true, null);
         }, cancellationToken);
     }
@@ -536,7 +537,7 @@ public class UserManagementService(
 
             if (user.EmailConfirmed)
             {
-                logger.LogInformation("Invitation rejected for already-confirmed account {Email}", email);
+                logger.LogInformation("Invitation rejected for already-confirmed account {Email}", PiiRedactor.Email(email));
                 return ((bool, string?))(false, "Invalid or expired invitation.");
             }
 
@@ -550,7 +551,7 @@ public class UserManagementService(
             user.EmailConfirmed = true;
             await userManager.UpdateAsync(user);
 
-            logger.LogInformation("Invitation accepted for {Email}", email);
+            logger.LogInformation("Invitation accepted for {Email}", PiiRedactor.Email(email));
             return ((bool, string?))(true, null);
         }, cancellationToken);
     }

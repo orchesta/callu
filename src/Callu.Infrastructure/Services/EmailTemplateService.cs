@@ -8,6 +8,7 @@ using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Domain.Entities;
 using Callu.Shared.Exceptions;
 using Callu.Shared.Models.Email;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -147,7 +148,7 @@ public partial class EmailTemplateService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to send test email for template {TemplateId} to {Recipient}", id, recipientEmail);
+            logger.LogError(ex, "Failed to send test email for template {TemplateId} to {Recipient}", id, PiiRedactor.Email(recipientEmail));
             return (false, ex.Message);
         }
     }

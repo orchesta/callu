@@ -9,6 +9,7 @@ using Callu.Infrastructure.Providers;
 using Callu.Infrastructure.Utilities;
 using Callu.Shared.Extensions;
 using Callu.Shared;
+using Callu.Shared.Logging;
 using Callu.Shared.Models.Notifications;
 using Callu.Shared.Results;
 using Microsoft.EntityFrameworkCore;
@@ -907,24 +908,36 @@ public class NotificationChannelService(
         var sent = await emailService.SendAsync(to, subject, htmlBody, ct);
         if (sent)
         {
-            logger.LogDebug("[CHANNEL-EMAIL] Notification sent to {To}", to);
+            logger.LogDebug("[CHANNEL-EMAIL] Notification sent to {To}", PiiRedactor.Email(to));
             return SendResult.Ok;
         }
 
-        logger.LogWarning("[CHANNEL-EMAIL] Email service returned false for {To}", to);
+        logger.LogWarning("[CHANNEL-EMAIL] Email service returned false for {To}", PiiRedactor.Email(to));
         return SendResult.Transient(null, "Email service returned false");
     }
 
-    private static Dictionary<string, string> DeserializeConfig(string json)
+    private Dictionary<string, string> DeserializeConfig(string json)
     {
         try { return JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonOpts) ?? []; }
-        catch { return []; }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "A notification channel has unreadable configuration, so it is treated as unconfigured and "
+                + "will not deliver anything");
+            return [];
+        }
     }
 
-    private static List<Guid> DeserializeServiceFilter(string json)
+    private List<Guid> DeserializeServiceFilter(string json)
     {
         try { return JsonSerializer.Deserialize<List<Guid>>(json, JsonOpts) ?? []; }
-        catch { return []; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "A notification channel has an unreadable service filter, so it is read as unfiltered and "
+                + "will match every service");
+            return [];
+        }
     }
 
     private NotificationChannelDto MapToDto(NotificationChannel c)

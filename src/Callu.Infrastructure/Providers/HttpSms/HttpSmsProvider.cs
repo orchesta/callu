@@ -3,6 +3,7 @@ using System.Text.Json;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
 using Callu.Shared.Models.Communication;
+using Callu.Shared.Logging;
 using Microsoft.Extensions.Logging;
 
 namespace Callu.Infrastructure.Providers.HttpSms;
@@ -97,17 +98,18 @@ public class HttpSmsProvider : BaseCommunicationProvider
 
             if (EvaluateSuccess(response.IsSuccessStatusCode, responseBody))
             {
-                _logger.LogInformation("HTTP SMS sent to {To} (HTTP {Status})", request.To, (int)response.StatusCode);
+                _logger.LogInformation("HTTP SMS sent to {To} (HTTP {Status})",
+                    PiiRedactor.Phone(request.To), (int)response.StatusCode);
                 return new SmsResult { Success = true, MessageId = ExtractMessageId(responseBody) };
             }
 
             _logger.LogWarning("HTTP SMS failed to {To}: HTTP {Status} - {Body}",
-                request.To, (int)response.StatusCode, Truncate(responseBody, 300));
+                PiiRedactor.Phone(request.To), (int)response.StatusCode, Truncate(responseBody, 300));
             return new SmsResult { Success = false, ErrorMessage = $"HTTP {(int)response.StatusCode}: {Truncate(responseBody, 300)}" };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "HTTP SMS request failed to {To}", request.To);
+            _logger.LogError(ex, "HTTP SMS request failed to {To}", PiiRedactor.Phone(request.To));
             return new SmsResult { Success = false, ErrorMessage = ex.Message };
         }
     }

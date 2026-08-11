@@ -12,6 +12,7 @@ using Callu.Shared.Localization;
 using Callu.Shared.Models.Settings;
 using Callu.Shared.Results;
 using Microsoft.AspNetCore.Authorization;
+using Callu.Shared.Logging;
 
 namespace Callu.Api.Controllers;
 
@@ -146,7 +147,7 @@ public class SetupController(
             await tx.CommitAsync(ct);
             setupLatch.MarkComplete();
 
-            logger.LogInformation("Initial setup completed. Admin: {Email}", request.Email);
+            logger.LogInformation("Initial setup completed. Admin: {Email}", PiiRedactor.Email(request.Email));
 
             return Ok(new
             {

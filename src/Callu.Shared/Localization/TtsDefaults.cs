@@ -83,9 +83,15 @@ public static class TtsDefaults
     /// Load all TTS default JSON files from the given directory.
     /// Call this at startup (e.g., in Program.cs).
     /// </summary>
-    public static void Initialize(string ttsDefaultsDir)
+    /// <returns>One entry per language file that could not be loaded; empty when all of them loaded.</returns>
+    public static IReadOnlyList<TtsDefaultsLoadFailure> Initialize(string ttsDefaultsDir)
     {
-        if (!Directory.Exists(ttsDefaultsDir)) return;
+        // A missing file is not thrown on: a language nobody configured must not stop the host. The
+        // caller logs what did not load, because the only other symptom is the wrong language on a call.
+        if (!Directory.Exists(ttsDefaultsDir))
+            return [new TtsDefaultsLoadFailure(ttsDefaultsDir, "The TTS defaults directory does not exist.")];
+
+        var failures = new List<TtsDefaultsLoadFailure>();
 
         foreach (var file in Directory.GetFiles(ttsDefaultsDir, "*.json"))
         {
@@ -95,17 +101,20 @@ public static class TtsDefaults
                 var json = File.ReadAllText(file);
                 var messages = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
                 if (messages != null)
-                {
                     _defaults[langCode] = messages;
-                }
+                else
+                    failures.Add(new TtsDefaultsLoadFailure(langCode, "The file parsed to null."));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                failures.Add(new TtsDefaultsLoadFailure(langCode, $"{ex.GetType().Name}: {ex.Message}"));
             }
         }
 
         if (_defaults.TryGetValue("en-US", out var en))
             _englishFallback = en;
+
+        return failures;
     }
 
     /// <summary>
@@ -135,3 +144,6 @@ public static class TtsDefaults
 /// Describes a TTS message key for the UI template editor.
 /// </summary>
 public record TtsKeyDescriptor(string Key, string Label, string Group, string Description);
+
+/// <summary>A language whose spoken defaults could not be loaded, and why.</summary>
+public record TtsDefaultsLoadFailure(string LanguageCode, string Reason);
