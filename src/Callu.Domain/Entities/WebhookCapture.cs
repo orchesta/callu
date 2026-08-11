@@ -12,6 +12,12 @@ public class WebhookCapture : BaseEntity
     /// <summary>How many captures one endpoint keeps; the oldest beyond this are dropped on write.</summary>
     public const int MaxPerScope = 500;
 
+    /// <summary>Largest page a capture listing returns.</summary>
+    public const int MaxPageSize = 50;
+
+    /// <summary>Suffix appended to a captured body that was cut at the size limit.</summary>
+    public const string TruncationSuffix = "\n...[truncated]";
+
     /// <summary>
     /// Service this capture belongs to (absent for captures taken on an unbound integration)
     /// </summary>

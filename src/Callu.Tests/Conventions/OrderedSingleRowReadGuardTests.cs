@@ -253,7 +253,7 @@ public class OrderedSingleRowReadGuardTests
         // not unique, and the acknowledgement it attributes is now recorded in the audit trail, so
         // it reads two rows and declines to name an actor when both match.
         new("VoximplantVoiceCallbackPersistence.cs", "… okens .AsNoTracking() .Where(t => t.CallDataJson.Contains(incidentId.ToString())) .OrderByDescending(t => t.CreatedAt) .FirstOrDefaultAsync(cancellationToken)", Verdict.Ordered),
-        new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookCaptureRepository.cs", "… cancellationToken); return deleted > 0; } var row = await _dbSet.IgnoreQueryFilters() .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
@@ -274,6 +274,7 @@ public class OrderedSingleRowReadGuardTests
         new("WebhookTemplateRepository.cs", "return await _dbSet .FirstOrDefaultAsync(t => EF.Functions.ILike(t.Name, name) && !t.IsDeleted, cancellationToken)", Verdict.NeedsReview),
         new("WebhookTemplateService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var integration = await integrationRepo.FindSingleAsync( i => i.Id == integrationId && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookTemplateService.cs", "var integration = await integrationRepo.FindSingleAsync( i => i.Id == attachIntegrationId && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var service = await serviceRepo.FindSingleAsync(s => s.Id == serviceId && !s.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var template = await templateRepo.FindSingleAsync(t => t.Id == templateId && !t.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var template = await templateRepo.FindSingleAsync(t => t.Id == templateId && !t.IsDeleted, cancellationToken)", Verdict.PrimaryKey),

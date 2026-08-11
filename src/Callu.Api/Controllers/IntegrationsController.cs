@@ -53,7 +53,9 @@ public class IntegrationsController(IIntegrationService integrations) : Controll
     }
 
     /// <summary>Mints a new token and API key; previous credentials stop working immediately.</summary>
+    // Killing a live key silences the sender org-wide, so rotation stays with admins.
     [HttpPost("{id:guid}/rotate-credentials")]
+    [Authorize(Policy = Policies.CanManageIntegrations)]
     public async Task<IActionResult> RotateCredentials(Guid id, CancellationToken ct)
     {
         var secrets = await integrations.RotateCredentialsAsync(id, ct);

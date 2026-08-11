@@ -68,4 +68,33 @@ public class WebhookTemplatePreviewTests : IDisposable
         Assert.True(result.Success);
         Assert.Equal("Open", result.MappedFields!["state"]);
     }
+
+    [Fact]
+    public void ATruncatedPayload_FailsWithTheTruncationMessage_NotAParseError()
+    {
+        var result = _sut.PreviewTemplate(new PreviewWebhookTemplateRequest
+        {
+            SamplePayload = """{"title":"disk""" + Callu.Domain.Entities.WebhookCapture.TruncationSuffix,
+            FieldMappings = """{"title":"$.title"}"""
+        });
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task TestTemplate_AlsoRefusesATruncatedPayload()
+    {
+        var template = await _sut.CreateTemplateAsync(new CreateWebhookTemplateRequest
+        {
+            Name = "t",
+            FieldMappings = """{"title":"$.title"}"""
+        });
+
+        var result = await _sut.TestTemplateAsync(
+            template.Id, """{"title":"disk""" + Callu.Domain.Entities.WebhookCapture.TruncationSuffix);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+    }
 }

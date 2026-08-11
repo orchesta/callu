@@ -176,6 +176,33 @@ public class IntegrationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BindingAService_TurnsListeningOff_SoAlarmsOpenIncidents()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest { Name = "Zabbix", Type = "Webhook" });
+
+        var bound = await _sut.BindServiceAsync(secrets.Id, _serviceId);
+
+        Assert.False(bound.ListeningMode);
+        var stored = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == secrets.Id);
+        Assert.False(stored.ListeningMode);
+    }
+
+    [Fact]
+    public async Task UnbindingAService_TurnsListeningBackOn_SoAlarmsAreKept()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest
+        {
+            Name = "Grafana",
+            Type = "Webhook",
+            ServiceId = _serviceId
+        });
+
+        var unbound = await _sut.BindServiceAsync(secrets.Id, null);
+
+        Assert.True(unbound.ListeningMode);
+    }
+
+    [Fact]
     public async Task UpdateWithListeningModeSet_AppliesIt()
     {
         var secrets = await _sut.CreateAsync(new CreateIntegrationRequest

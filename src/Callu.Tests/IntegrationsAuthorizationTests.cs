@@ -24,4 +24,15 @@ public class IntegrationsAuthorizationTests
         Assert.NotEmpty(authorize);
         Assert.Contains(authorize, a => a.Policy == "CanManageIntegrations");
     }
+
+    [Fact]
+    public void RotateCredentials_StaysAdminOnly()
+    {
+        var authorize = typeof(IntegrationsController)
+            .GetMethod(nameof(IntegrationsController.RotateCredentials))!
+            .GetCustomAttributes<AuthorizeAttribute>(inherit: true)
+            .ToList();
+
+        Assert.Contains(authorize, a => a.Policy == "CanManageIntegrations");
+    }
 }

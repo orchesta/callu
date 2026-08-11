@@ -7,6 +7,7 @@ import type {
     WebhookTemplateDto,
     CreateWebhookTemplateRequest,
     UpdateWebhookTemplateRequest,
+    PreviewWebhookTemplateRequest,
     WebhookTemplateTestResult,
 } from '../types/webhook-template.types';
 
@@ -40,4 +41,8 @@ export const webhookTemplateApi = {
     /** POST /webhook-templates/{id}/test */
     test: (id: string, samplePayload: string) =>
         apiClient.post<WebhookTemplateTestResult>(`${BASE}/${id}/test`, { samplePayload }),
+
+    /** POST /webhook-templates/preview */
+    preview: (data: PreviewWebhookTemplateRequest) =>
+        apiClient.post<WebhookTemplateTestResult>(`${BASE}/preview`, data),
 };

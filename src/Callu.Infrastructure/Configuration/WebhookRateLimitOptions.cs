@@ -5,8 +5,7 @@ public class WebhookRateLimitOptions
 {
     public const string SectionName = "Callu:WebhookRateLimit";
 
-    // A 429 is a 4xx, and monitoring tools do not retry those — an alarm refused here is lost.
-    // The default is sized for one monitoring host funnelling a storm through a single address.
+    // Monitoring tools do not retry a 429, so the default absorbs one host funnelling an alert storm.
     public int PermitLimit { get; set; } = 1000;
     public int WindowSeconds { get; set; } = 60;
     public int QueueLimit { get; set; } = 10;

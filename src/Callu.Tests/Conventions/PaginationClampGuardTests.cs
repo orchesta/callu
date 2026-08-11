@@ -102,6 +102,17 @@ public class PaginationClampGuardTests
             + "unbounded count would be a slow upstream call and a large response to hold, not a table "
             + "scan. Unverified by this guard."),
 
+        new("CapturesController", "GetByService", "page, pageSize", Bound.ClampedByTheSink,
+            "WebhookCaptureService.GetCapturesAsync clamps through ClampPage: Math.Max(1, page) and "
+            + "Math.Clamp(pageSize, 1, WebhookCapture.MaxPageSize). Clamped in the service so the "
+            + "integration-scoped twin below cannot drift from it. Unverified by this guard; "
+            + "WebhookCaptureScopeTests.Pagination_ClampsPageZeroAndOversizedPageSize pins it."),
+
+        new("CapturesController", "GetByIntegration", "page, pageSize", Bound.ClampedByTheSink,
+            "The same ClampPage in WebhookCaptureService.GetCapturesByIntegrationAsync. Capture bodies "
+            + "are up to 64 KB each, so the 50-row page bound is also a response-size bound. Unverified "
+            + "by this guard; the same scope test pins it."),
+
         new("VideoConferenceAdminController", "GetConferenceRooms", "filter", Bound.ClampedByTheDto,
             "ConferenceRoomFilter.PageSize has a field-backed setter that clamps to "
             + "AppConstants.Pagination.MaxPageSize, so the bound travels with the DTO rather than with "

@@ -6,6 +6,7 @@ using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
+using Callu.Shared.Exceptions;
 using Callu.Shared.Localization;
 using Callu.Shared.Models.Webhooks;
 
@@ -75,6 +76,15 @@ public class WebhookTemplateService(
 
             await templateRepo.AddAsync(template, cancellationToken);
 
+            // Attach in the same transaction, so a template meant for an endpoint cannot end up detached.
+            if (request.AttachToIntegrationId is { } attachIntegrationId)
+            {
+                var integration = await integrationRepo.FindSingleAsync(
+                        i => i.Id == attachIntegrationId && !i.IsDeleted, cancellationToken)
+                    ?? throw new NotFoundException("Integration", attachIntegrationId);
+                integration.WebhookTemplateId = template.Id;
+            }
+
             return template.Adapt<WebhookTemplateDto>();
         }, cancellationToken);
     }
@@ -87,6 +97,10 @@ public class WebhookTemplateService(
             
             if (capture == null)
                 throw new ArgumentException("Capture not found", nameof(captureId));
+
+            // A body cut at the size limit is not parseable JSON; refusing beats a broken sample.
+            if (capture.Body.EndsWith(WebhookCapture.TruncationSuffix, StringComparison.Ordinal))
+                throw new BusinessRuleException(Messages.Get("webhooks.captureTruncated"));
 
             var template = new WebhookTemplate
             {
@@ -182,6 +196,9 @@ public class WebhookTemplateService(
             };
         }
 
+        if (WasTruncated(samplePayload))
+            return TruncatedResult();
+
         var validationResult = payloadParser.Validate(samplePayload, template);
 
         return new WebhookTemplateTestResult
@@ -194,6 +211,9 @@ public class WebhookTemplateService(
 
     public WebhookTemplateTestResult PreviewTemplate(PreviewWebhookTemplateRequest request)
     {
+        if (WasTruncated(request.SamplePayload))
+            return TruncatedResult();
+
         // The throwaway template goes through the same parser as live ingest, so the preview
         // cannot disagree with what a real delivery would do.
         var template = new WebhookTemplate
@@ -212,4 +232,13 @@ public class WebhookTemplateService(
             MappedFields = validationResult.ExtractedFields
         };
     }
+
+    private static bool WasTruncated(string payload) =>
+        payload.EndsWith(WebhookCapture.TruncationSuffix, StringComparison.Ordinal);
+
+    private static WebhookTemplateTestResult TruncatedResult() => new()
+    {
+        Success = false,
+        ErrorMessage = Messages.Get("webhooks.captureTruncated")
+    };
 }

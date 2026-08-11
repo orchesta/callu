@@ -13,10 +13,18 @@ namespace Callu.Api.Controllers;
 public class CapturesController(IWebhookCaptureService captureService) : ControllerBase
 {
     [HttpGet("service/{serviceId:guid}")]
-    public async Task<IActionResult> GetByService(Guid serviceId, CancellationToken ct)
+    public async Task<IActionResult> GetByService(
+        Guid serviceId, CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        var captures = await captureService.GetCapturesAsync(serviceId, ct);
+        var captures = await captureService.GetCapturesAsync(serviceId, page, pageSize, ct);
         return Ok(captures);
+    }
+
+    [HttpGet("service/{serviceId:guid}/count")]
+    public async Task<IActionResult> GetCountByService(Guid serviceId, CancellationToken ct)
+    {
+        var count = await captureService.GetCaptureCountAsync(serviceId, ct);
+        return Ok(new { count });
     }
 
     [HttpGet("{id:guid}")]
@@ -51,10 +59,18 @@ public class CapturesController(IWebhookCaptureService captureService) : Control
     }
 
     [HttpGet("integration/{integrationId:guid}")]
-    public async Task<IActionResult> GetByIntegration(Guid integrationId, CancellationToken ct)
+    public async Task<IActionResult> GetByIntegration(
+        Guid integrationId, CancellationToken ct, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        var captures = await captureService.GetCapturesByIntegrationAsync(integrationId, ct);
+        var captures = await captureService.GetCapturesByIntegrationAsync(integrationId, page, pageSize, ct);
         return Ok(captures);
+    }
+
+    [HttpGet("integration/{integrationId:guid}/count")]
+    public async Task<IActionResult> GetCountByIntegration(Guid integrationId, CancellationToken ct)
+    {
+        var count = await captureService.GetCaptureCountByIntegrationAsync(integrationId, ct);
+        return Ok(new { count });
     }
 
     [HttpDelete("integration/{integrationId:guid}")]

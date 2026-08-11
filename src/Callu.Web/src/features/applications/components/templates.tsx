@@ -23,6 +23,7 @@ import {
   useTestWebhookTemplate,
 } from "@/features/settings/hooks/use-webhook-templates";
 import type { WebhookTemplateDto } from "@/features/settings/types/webhook-template.types";
+import { TemplateTestResultView } from "@/features/settings/components/template-test-result";
 
 export function ApplicationTemplates() {
   const { data: templates, isLoading, error } = useWebhookTemplates();
@@ -142,33 +143,7 @@ export function ApplicationTemplates() {
               />
             </div>
 
-            {testTemplate.data && (
-              <div className="rounded-md border border-border p-3">
-                {testTemplate.data.success ? (
-                  <>
-                    <p className="mb-2 text-xs font-semibold text-muted-foreground">
-                      {t("webhookTemplates.mapped")}
-                    </p>
-                    <dl className="space-y-1 text-sm">
-                      {Object.entries(testTemplate.data.mappedFields).map(([field, value]) => (
-                        <div key={field} className="flex gap-2">
-                          <dt className="w-40 flex-shrink-0 font-mono text-xs text-muted-foreground">
-                            {field}
-                          </dt>
-                          <dd className={value ? "" : "text-muted-foreground italic"}>
-                            {value ?? t("webhookTemplates.unmapped")}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </>
-                ) : (
-                  <p className="text-sm text-error-400">
-                    {testTemplate.data.errorMessage || t("webhookTemplates.testFailed")}
-                  </p>
-                )}
-              </div>
-            )}
+            {testTemplate.data && <TemplateTestResultView result={testTemplate.data} />}
           </div>
 
           <DialogFooter>

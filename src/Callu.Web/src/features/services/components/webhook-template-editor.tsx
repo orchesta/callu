@@ -36,10 +36,12 @@ import {
   useCreateWebhookTemplate,
   useUpdateWebhookTemplate,
   useCreateWebhookTemplateFromCapture,
+  usePreviewWebhookTemplate,
 } from "@/features/settings/hooks/use-webhook-templates";
+import { TemplateTestResultView } from "@/features/settings/components/template-test-result";
 import { useService } from "../hooks/use-services";
 import { useCapture } from "../hooks/use-captures";
-import { useIntegration, useUpdateIntegration, integrationKeys } from "@/features/applications/hooks/use-integrations";
+import { useIntegration, integrationKeys } from "@/features/applications/hooks/use-integrations";
 import { extractFields, resolveJsonPath, type ParsedField } from "../utils/json-payload";
 import { t } from "@/shared/locales/i18n";
 import { useLocaleTick } from "@/shared/hooks/use-locale-tick";
@@ -106,9 +108,9 @@ export function WebhookTemplateEditor({ scope = "service" }: WebhookTemplateEdit
   const { data: captureData } = useCapture(captureId ?? "");
   const createTemplate = useCreateWebhookTemplate();
   const setServiceTemplate = useSetWebhookTemplate();
-  const updateIntegration = useUpdateIntegration();
   const updateTemplate = useUpdateWebhookTemplate();
   const createFromCapture = useCreateWebhookTemplateFromCapture();
+  const serverPreview = usePreviewWebhookTemplate();
   const queryClient = useQueryClient();
   const backPath = isApplicationScope ? "/applications" : `/services/${id}`;
 
@@ -261,19 +263,27 @@ export function WebhookTemplateEditor({ scope = "service" }: WebhookTemplateEdit
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending || createFromCapture.isPending;
 
-  const handleSave = () => {
-    const fieldMappings = JSON.stringify({
+  const buildMappings = () => ({
+    fieldMappings: JSON.stringify({
       title: titleMapping,
       description: descriptionMapping,
       severity: severityFieldMapping,
       externalId: externalIdMapping || undefined,
-    });
-    const stateMapping = JSON.stringify({
+    }),
+    stateMapping: JSON.stringify({
       stateField: stateFieldMapping,
       openValue: openStateValue,
       resolvedValue: resolvedStateValue,
       severityMappings: severityMappings,
-    });
+    }),
+  });
+
+  const handleServerPreview = () => {
+    serverPreview.mutate({ samplePayload, ...buildMappings() });
+  };
+
+  const handleSave = () => {
+    const { fieldMappings, stateMapping } = buildMappings();
 
     const successHandler = () => {
       setShowSuccess(true);
@@ -323,34 +333,20 @@ export function WebhookTemplateEditor({ scope = "service" }: WebhookTemplateEdit
           stateMapping,
           samplePayload: samplePayload || undefined,
           dataLanguage,
+          // The backend attaches inside the create transaction, so the template cannot end up detached.
+          attachToIntegrationId: isApplicationScope && id ? id : undefined,
         },
         {
-          // Creating from a capture attaches the template to the service; writing one by hand has
-          // to do the same, or the operator's work sits there unused.
           onSuccess: (created) => {
             if (isApplicationScope) {
-              if (id && created?.id && integration) {
-                updateIntegration.mutate(
-                  {
-                    id,
-                    name: integration.name,
-                    description: integration.description,
-                    teamId: integration.teamId,
-                    webhookTemplateId: created.id,
-                    isActive: integration.isActive,
-                    webhookEnabled: integration.webhookEnabled,
-                  },
-                  { onSettled: successHandler },
-                );
-                return;
-              }
+              queryClient.invalidateQueries({ queryKey: integrationKeys.all });
               successHandler();
               return;
             }
             if (id && created?.id) {
               setServiceTemplate.mutate(
                 { serviceId: id, templateId: created.id },
-                { onSettled: successHandler },
+                { onSuccess: successHandler },
               );
               return;
             }
@@ -706,6 +702,29 @@ export function WebhookTemplateEditor({ scope = "service" }: WebhookTemplateEdit
             <p style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '1rem', textAlign: 'center' }}>
               {t("webhookTemplate.previewHint")}
             </p>
+
+            <div className="mt-4 border-t border-border pt-4 space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <p style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                  {t("webhookTemplate.serverPreview")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={serverPreview.isPending || !samplePayload.trim()}
+                  onClick={handleServerPreview}
+                  className="bg-input-background"
+                >
+                  {serverPreview.isPending
+                    ? t("webhookTemplates.running")
+                    : t("webhookTemplate.serverPreviewRun")}
+                </Button>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                {t("webhookTemplate.serverPreviewHint")}
+              </p>
+              {serverPreview.data && <TemplateTestResultView result={serverPreview.data} />}
+            </div>
           </Card>
 
           <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">

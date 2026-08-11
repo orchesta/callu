@@ -104,6 +104,7 @@
     "incidentCreated": "Incident created",
     "processFailed": "Failed to process webhook",
     "templateNotFound": "Template not found",
+    "captureTruncated": "This captured request was cut at the size limit, so its payload is incomplete and cannot be parsed. Pick a smaller capture.",
     "invalidPayload": "Invalid payload or template",
     "noTitle": "Could not extract title from payload",
     "processingFailed": "Failed to process webhook",

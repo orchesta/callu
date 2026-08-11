@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from "react";
+﻿import { useEffect, useState, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -13,6 +13,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/shared/components/ui/tabs";
 import {
+  ChevronLeft,
   ChevronRight,
   Home,
   Trash2,
@@ -30,17 +31,22 @@ import {
 } from "lucide-react";
 import {
   useCapturesByService,
+  useCapturesByIntegration,
+  useServiceCaptureCount,
+  useIntegrationCaptureCount,
   useMarkCaptureReviewed,
   useDeleteCapture,
   useDeleteAllCaptures,
+  useDeleteAllIntegrationCaptures,
 } from "../hooks/use-captures";
 import type { WebhookCaptureDto } from "../types/webhook-capture.types";
 import { useService, serviceQueries, useCreateService } from "../hooks/use-services";
+import { CAPTURE_PAGE_SIZE } from "../api/captures.api";
 import { getLocale, t } from "@/shared/locales/i18n";
 import { useLocaleTick } from "@/shared/hooks/use-locale-tick";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiQueryOptions, useApiMutation } from "@/shared/api";
-import { integrationCapturesApi } from "@/features/applications/api/captures.api";
+import { useQuery } from "@tanstack/react-query";
+import { useTestWebhookTemplate } from "@/features/settings/hooks/use-webhook-templates";
+import { TemplateTestResultView } from "@/features/settings/components/template-test-result";
 import { useIntegration, useBindIntegrationService } from "@/features/applications/hooks/use-integrations";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -82,7 +88,7 @@ function parseBody(body: string): unknown {
 
 import React from "react";
 
-const CaptureStats = React.memo(function CaptureStats({ captures }: { captures: WebhookCaptureDto[] }) {
+const CaptureStats = React.memo(function CaptureStats({ captures, total }: { captures: WebhookCaptureDto[]; total: number }) {
   const { newCount, reviewed, resolved } = useMemo(() => {
     let n = 0, rev = 0, res = 0;
     for (const c of captures) {
@@ -97,7 +103,7 @@ const CaptureStats = React.memo(function CaptureStats({ captures }: { captures: 
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <div className="p-4 rounded-lg bg-card/80 backdrop-blur-sm border border-border">
         <p style={{ fontSize: '0.75rem', color: '#94A3B8', fontWeight: 600, letterSpacing: '0.05em' }}>{t("webhookCaptures.statTotal").toUpperCase()}</p>
-        <p style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.5rem' }}>{captures.length}</p>
+        <p style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.5rem' }}>{total}</p>
       </div>
       <div className="p-4 rounded-lg bg-card/80 backdrop-blur-sm border border-success-500/20">
         <p style={{ fontSize: '0.75rem', color: '#22C55E', fontWeight: 600, letterSpacing: '0.05em' }}>{t("webhookCaptures.statNew").toUpperCase()}</p>
@@ -126,39 +132,32 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
   const serviceId = isApplication ? "" : id;
   const integrationId = isApplication ? id : "";
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: service } = useService(serviceId);
   const { data: integration } = useIntegration(isApplication ? integrationId : undefined);
 
   const i18nTick = useLocaleTick();
 
-  const { data: serviceCaptures = [], isLoading: isServiceLoading } = useCapturesByService(serviceId);
-  const { data: integrationCaptures = [], isLoading: isIntegrationLoading } = useQuery(
-    apiQueryOptions(
-      ["captures", "integration", integrationId],
-      () => integrationCapturesApi.getByIntegration(integrationId),
-      { enabled: isApplication && !!integrationId },
-    ),
-  );
+  const [page, setPage] = useState(1);
+  const { data: serviceCaptures = [], isLoading: isServiceLoading } = useCapturesByService(serviceId, page);
+  const { data: integrationCaptures = [], isLoading: isIntegrationLoading } =
+    useCapturesByIntegration(integrationId, page);
+  const { data: serviceCount } = useServiceCaptureCount(serviceId);
+  const { data: integrationCount } = useIntegrationCaptureCount(integrationId);
   const captures = isApplication ? integrationCaptures : serviceCaptures;
   const isLoading = isApplication ? isIntegrationLoading : isServiceLoading;
+  const totalCount = (isApplication ? integrationCount?.count : serviceCount?.count) ?? captures.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / CAPTURE_PAGE_SIZE));
+
+  // An emptied page (deletes, cap trim) steps back instead of showing a dead screen.
+  useEffect(() => {
+    if (!isLoading && captures.length === 0 && page > 1) setPage((p) => Math.max(1, p - 1));
+  }, [isLoading, captures.length, page]);
 
   const markReviewedMutation = useMarkCaptureReviewed();
   const deleteMutation = useDeleteCapture();
   const deleteAllMutation = useDeleteAllCaptures();
-  const clearIntegrationCapturesMutation = useApiMutation(
-    (intId: string) => integrationCapturesApi.deleteAll(intId),
-    {
-      successMessage: "All captures cleared",
-      onSuccess: () =>
-        queryClient.invalidateQueries({ queryKey: ["captures", "integration", integrationId] }),
-    },
-  );
-  const previewParseMutation = useApiMutation(
-    ({ templateId, samplePayload }: { templateId: string; samplePayload: string }) =>
-      integrationCapturesApi.testTemplate(templateId, samplePayload),
-    { successMessage: false },
-  );
+  const clearIntegrationCapturesMutation = useDeleteAllIntegrationCaptures();
+  const previewParseMutation = useTestWebhookTemplate();
 
   const { data: services = [] } = useQuery({ ...serviceQueries.all(), enabled: isApplication });
   const createServiceMutation = useCreateService();
@@ -221,6 +220,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
       } else {
         await deleteAllMutation.mutateAsync(serviceId);
       }
+      setPage(1);
       setIsDeleteAllModalOpen(false);
     } catch { /* empty */ }
   };
@@ -235,7 +235,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
 
   const handlePreviewParse = () => {
     if (!boundTemplateId || !selectedCapture) return;
-    previewParseMutation.mutate({ templateId: boundTemplateId, samplePayload: selectedCapture.body });
+    previewParseMutation.mutate({ id: boundTemplateId, samplePayload: selectedCapture.body });
   };
 
   const closeBindModal = () => {
@@ -340,7 +340,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
               </Button>
               <Button
                 onClick={() => setIsDeleteAllModalOpen(true)}
-                disabled={captures.length === 0}
+                disabled={totalCount === 0}
                 variant="outline"
                 className="bg-input-background hover:bg-error-500/10 hover:text-error-500"
               >
@@ -351,7 +351,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
           ) : (
             <Button
               onClick={() => setIsDeleteAllModalOpen(true)}
-              disabled={captures.length === 0}
+              disabled={totalCount === 0}
               variant="outline"
               className="bg-input-background hover:bg-error-500/10 hover:text-error-500"
             >
@@ -361,7 +361,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
           )}
         </div>
 
-        <CaptureStats key={i18nTick} captures={captures} />
+        <CaptureStats key={i18nTick} captures={captures} total={totalCount} />
 
         {captures.length > 0 ? (
           <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
@@ -439,6 +439,33 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
                 </div>
               ))}
             </div>
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-input-background"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  {t("common.previous")}
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {t("webhookCaptures.pageIndicator", { page, pages: totalPages })}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-input-background"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  {t("common.next")}
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            )}
           </Card>
         ) : (
           <Card className="p-12 bg-card/80 backdrop-blur-sm border-border text-center">
@@ -607,31 +634,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
                         </Button>
                       </div>
                       {previewParseMutation.data && (
-                        <div className="rounded-md border border-border p-3">
-                          {previewParseMutation.data.success ? (
-                            <>
-                              <p className="mb-2 text-xs font-semibold text-muted-foreground">
-                                {t("webhookTemplates.mapped")}
-                              </p>
-                              <dl className="space-y-1 text-sm">
-                                {Object.entries(previewParseMutation.data.mappedFields).map(([field, value]) => (
-                                  <div key={field} className="flex gap-2">
-                                    <dt className="w-40 flex-shrink-0 font-mono text-xs text-muted-foreground">
-                                      {field}
-                                    </dt>
-                                    <dd className={value ? "" : "text-muted-foreground italic"}>
-                                      {value ?? t("webhookTemplates.unmapped")}
-                                    </dd>
-                                  </div>
-                                ))}
-                              </dl>
-                            </>
-                          ) : (
-                            <p className="text-sm text-error-400">
-                              {previewParseMutation.data.errorMessage || t("webhookTemplates.testFailed")}
-                            </p>
-                          )}
-                        </div>
+                        <TemplateTestResultView result={previewParseMutation.data} />
                       )}
                     </>
                   ) : (
@@ -694,7 +697,7 @@ export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
               </div>
               <div>
                 <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-                  {t("webhookCaptures.clearAllLead", { count: captures.length })}
+                  {t("webhookCaptures.clearAllLead", { count: totalCount })}
                 </p>
                 <p style={{ fontSize: '0.8125rem', color: '#94A3B8' }}>
                   {t("communications.deleteDialogShort")}

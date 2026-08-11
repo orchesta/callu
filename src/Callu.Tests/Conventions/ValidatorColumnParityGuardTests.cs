@@ -221,6 +221,14 @@ public class ValidatorColumnParityGuardTests
                          ?? property.GetCustomAttribute<MaxLengthAttribute>()?.Length;
         if (annotation is > 0) bounds.Add(annotation.Value);
 
+        // Records carry the annotation on the constructor parameter — the place MVC reads it from.
+        var parameter = owner.GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .FirstOrDefault(p => string.Equals(p.Name, property.Name, StringComparison.OrdinalIgnoreCase));
+        var parameterAnnotation = parameter?.GetCustomAttribute<StringLengthAttribute>()?.MaximumLength
+                                  ?? parameter?.GetCustomAttribute<MaxLengthAttribute>()?.Length;
+        if (parameterAnnotation is > 0) bounds.Add(parameterAnnotation.Value);
+
         if (Validators.Value.TryGetValue(owner, out var validator))
             bounds.AddRange(validator.CreateDescriptor()
                 .GetValidatorsForMember(property.Name)

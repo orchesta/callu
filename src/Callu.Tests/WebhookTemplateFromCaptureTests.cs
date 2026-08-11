@@ -114,4 +114,44 @@ public class WebhookTemplateFromCaptureTests : IDisposable
         var stored = await _ctx.WebhookCaptures.AsNoTracking().SingleAsync(c => c.Id == capture.Id);
         Assert.Equal(WebhookCaptureStatus.UsedForTemplate, stored.Status);
     }
+
+    [Fact]
+    public async Task ATruncatedCapture_IsRefusedWithAClearMessage()
+    {
+        var (_, _, capture) = Seed(captureOnIntegration: true);
+        capture.Body = """{"title":"disk""" + WebhookCapture.TruncationSuffix;
+        _ctx.SaveChanges();
+
+        await Assert.ThrowsAsync<Callu.Shared.Exceptions.BusinessRuleException>(
+            () => CreateFromCapture(capture.Id));
+        Assert.Empty(_ctx.WebhookTemplates.AsNoTracking().Where(t => !t.IsBuiltIn));
+    }
+
+    [Fact]
+    public async Task CreateWithAttachToIntegration_BindsInTheSameCall()
+    {
+        var (_, integration, _) = Seed(captureOnIntegration: true);
+
+        var template = await _sut.CreateTemplateAsync(new CreateWebhookTemplateRequest
+        {
+            Name = "hand-written",
+            FieldMappings = """{"title":"$.title"}""",
+            AttachToIntegrationId = integration.Id
+        });
+
+        var storedIntegration = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == integration.Id);
+        Assert.Equal(template.Id, storedIntegration.WebhookTemplateId);
+    }
+
+    [Fact]
+    public async Task CreateWithAttachToAMissingIntegration_ThrowsNotFound_AndSavesNothing()
+    {
+        await Assert.ThrowsAsync<Callu.Shared.Exceptions.NotFoundException>(() =>
+            _sut.CreateTemplateAsync(new CreateWebhookTemplateRequest
+            {
+                Name = "hand-written",
+                FieldMappings = """{"title":"$.title"}""",
+                AttachToIntegrationId = Guid.NewGuid()
+            }));
+    }
 }

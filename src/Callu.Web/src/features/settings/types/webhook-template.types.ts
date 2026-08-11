@@ -24,6 +24,15 @@ export interface CreateWebhookTemplateRequest {
     stateMapping?: string;
     samplePayload?: string;
     dataLanguage?: string;
+    /** Backend attaches the new template to this integration in the same transaction. */
+    attachToIntegrationId?: string;
+}
+
+/** Mirrors BE PreviewWebhookTemplateRequest — dry-runs unsaved mappings through the real parser. */
+export interface PreviewWebhookTemplateRequest {
+    samplePayload: string;
+    fieldMappings: string;
+    stateMapping?: string;
 }
 
 /** Mirrors BE UpdateWebhookTemplateRequest */

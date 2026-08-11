@@ -10,7 +10,7 @@ public interface IWebhookCaptureService
     /// <summary>
     /// Get captures for a service
     /// </summary>
-    Task<IEnumerable<WebhookCaptureDto>> GetCapturesAsync(Guid serviceId, CancellationToken cancellationToken = default);
+    Task<IEnumerable<WebhookCaptureDto>> GetCapturesAsync(Guid serviceId, int page, int pageSize, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Get capture by ID
@@ -45,7 +45,12 @@ public interface IWebhookCaptureService
     /// <summary>
     /// Get captures for an integration
     /// </summary>
-    Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default);
+    Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, int page, int pageSize, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get capture count for an integration
+    /// </summary>
+    Task<int> GetCaptureCountByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Delete all captures for an integration

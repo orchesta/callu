@@ -41,7 +41,8 @@ public class IntegrationService(
             .ThenBy(i => i.Id)
             .ToListAsync(cancellationToken);
 
-        var captureCounts = await captureRepo.GetCountsByIntegrationAsync(cancellationToken);
+        var captureCounts = await captureRepo.GetCountsByIntegrationAsync(
+            items.Select(i => i.Id).ToList(), cancellationToken);
         return items.Select(i => MapToDto(i, captureCounts.GetValueOrDefault(i.Id))).ToList();
     }
 
@@ -240,16 +241,18 @@ public class IntegrationService(
                 .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)
                 ?? throw new NotFoundException(EntityName, id);
 
-            var before = $"service={entity.ServiceId}";
+            var before = $"service={entity.ServiceId}; listening={entity.ListeningMode}";
             entity.ServiceId = serviceId;
             entity.Service = null;
+            // Binding means "start opening incidents", so listening ends with it; unbinding restarts it.
+            entity.ListeningMode = serviceId is null;
             entity.UpdatedAt = DateTime.UtcNow;
             repo.Update(entity);
 
             await auditLog.LogAsync(
                 currentUser.UserId, AuditAction.Updated, EntityName, entity.Id.ToString(),
                 oldValues: before,
-                newValues: $"service={serviceId}",
+                newValues: $"service={serviceId}; listening={entity.ListeningMode}",
                 description: serviceId is null
                     ? $"Inbound integration '{entity.Name}' unbound; it now captures instead of creating incidents"
                     : $"Inbound integration '{entity.Name}' bound to service {serviceId}",

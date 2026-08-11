@@ -36,9 +36,17 @@ const integration = {
 
 vi.mock("@/features/services/hooks/use-captures", () => ({
   useCapturesByService: () => ({ data: [], isLoading: false }),
+  useCapturesByIntegration: () => ({ data: [], isLoading: false }),
+  useServiceCaptureCount: () => ({ data: undefined }),
+  useIntegrationCaptureCount: () => ({ data: { count: 0 } }),
   useMarkCaptureReviewed: () => idle,
   useDeleteCapture: () => idle,
   useDeleteAllCaptures: () => idle,
+  useDeleteAllIntegrationCaptures: () => idle,
+}));
+
+vi.mock("@/features/settings/hooks/use-webhook-templates", () => ({
+  useTestWebhookTemplate: () => idle,
 }));
 
 vi.mock("@/features/services/hooks/use-services", () => ({
@@ -55,8 +63,8 @@ vi.mock("@/features/applications/hooks/use-integrations", () => ({
 vi.mock("@/features/applications/api/captures.api", () => ({
   integrationCapturesApi: {
     getByIntegration: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    getCountByIntegration: vi.fn().mockResolvedValue({ success: true, data: { count: 0 } }),
     deleteAll: vi.fn(),
-    testTemplate: vi.fn(),
   },
 }));
 

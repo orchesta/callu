@@ -38,6 +38,8 @@ import { LoadingState } from "@/shared/components/loading-state";
 import { ErrorState } from "@/shared/components/error-state";
 import { EmptyState } from "@/shared/components/empty-state";
 import { DeleteConfirmDialog } from "@/shared/components/delete-confirm-dialog";
+import { useAuth } from "@/shared/auth/auth.context";
+import { hasPermission, PERMISSIONS } from "@/shared/auth/roles";
 import { useServices } from "@/features/services/hooks/use-services";
 import { useWebhookTemplates } from "@/features/settings/hooks/use-webhook-templates";
 import {
@@ -60,6 +62,8 @@ function absoluteWebhookUrl(path: string) {
 }
 
 export function ApplicationEndpoints() {
+  const { user } = useAuth();
+  const canRotate = hasPermission(user?.role, PERMISSIONS.ManageIntegrations);
   const { data: items, isLoading, error } = useIntegrations();
   const { data: services } = useServices();
   const { data: templates } = useWebhookTemplates();
@@ -165,6 +169,7 @@ export function ApplicationEndpoints() {
       id: editing.id,
       name: name.trim(),
       description: description.trim() || undefined,
+      teamId: editing.teamId ?? undefined,
       webhookTemplateId: templateId === NONE ? undefined : templateId,
       isActive,
       webhookEnabled,
@@ -329,16 +334,18 @@ export function ApplicationEndpoints() {
                     <Pencil className="w-4 h-4 mr-2" />
                     {t("common.edit")}
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-input-background"
-                    onClick={() => void handleRotate(item)}
-                    disabled={rotateMutation.isPending}
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${rotateMutation.isPending ? "animate-spin" : ""}`} />
-                    {t("inboundWebhooks.rotate")}
-                  </Button>
+                  {canRotate && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-input-background"
+                      onClick={() => void handleRotate(item)}
+                      disabled={rotateMutation.isPending}
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${rotateMutation.isPending ? "animate-spin" : ""}`} />
+                      {t("inboundWebhooks.rotate")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -381,7 +388,7 @@ export function ApplicationEndpoints() {
                 value={serviceId || undefined}
                 onValueChange={(value) => {
                   setServiceId(value);
-                  if (value === NONE) setListeningMode(true);
+                  setListeningMode(value === NONE);
                 }}
               >
                 <SelectTrigger className="bg-input-background">

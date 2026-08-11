@@ -26,6 +26,8 @@ public record CreateWebhookTemplateRequest
     public string? StateMapping { get; init; }
     public string? SamplePayload { get; init; }
     public string? DataLanguage { get; init; }
+    /// <summary>Integration the new template is attached to, in the same transaction as the create.</summary>
+    public Guid? AttachToIntegrationId { get; init; }
 }
 
 public record UpdateWebhookTemplateRequest

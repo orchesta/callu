@@ -10,8 +10,8 @@ public class BuildIdentityTests
     {
         var info = BuildIdentity.From(typeof(BuildIdentity).Assembly);
 
-        Assert.Equal("1.0.0", info.Version);
-        Assert.StartsWith("1.0.0", info.InformationalVersion);
+        Assert.Equal("1.1.0", info.Version);
+        Assert.StartsWith("1.1.0", info.InformationalVersion);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public class BuildIdentityTests
         var api = typeof(Callu.Api.Controllers.HealthController).Assembly;
         var info = BuildIdentity.From(api);
 
-        Assert.Equal("1.0.0", info.Version);
+        Assert.Equal("1.1.0", info.Version);
         Assert.False(string.IsNullOrWhiteSpace(info.InformationalVersion));
         Assert.StartsWith(info.Version, info.InformationalVersion);
     }

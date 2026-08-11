@@ -3,6 +3,7 @@ using Mapster;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
+using Callu.Domain.Entities;
 using Callu.Domain.Enums;
 using Callu.Shared.Models.Webhooks;
 
@@ -15,11 +16,12 @@ public class WebhookCaptureService(
     IWebhookCaptureRepository captureRepo,
     ITransactionManager transactionManager) : IWebhookCaptureService
 {
-    public async Task<IEnumerable<WebhookCaptureDto>> GetCapturesAsync(Guid serviceId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<WebhookCaptureDto>> GetCapturesAsync(Guid serviceId, int page, int pageSize, CancellationToken cancellationToken = default)
     {
+        var (safePage, safeSize) = ClampPage(page, pageSize);
         return await transactionManager.ExecuteInTransactionAsync(async () =>
         {
-            var captures = await captureRepo.GetByServiceAsync(serviceId, cancellationToken);
+            var captures = await captureRepo.GetByServiceAsync(serviceId, safePage, safeSize, cancellationToken);
             return captures.Select(c => c.Adapt<WebhookCaptureDto>());
         }, cancellationToken);
     }
@@ -59,27 +61,13 @@ public class WebhookCaptureService(
 
     public async Task<bool> DeleteCaptureAsync(Guid captureId, CancellationToken cancellationToken = default)
     {
-        return await transactionManager.ExecuteInTransactionAsync(async () =>
-        {
-            var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken);
-            if (capture == null) return false;
-            capture.IsDeleted = true;
-            return true;
-        }, cancellationToken);
+        return await captureRepo.HardDeleteAsync(captureId, cancellationToken);
     }
 
     public async Task<int> DeleteAllCapturesAsync(Guid serviceId, CancellationToken cancellationToken = default)
     {
-        return await transactionManager.ExecuteInTransactionAsync(async () =>
-        {
-            var captures = await captureRepo.FindAsync(c => c.ServiceId == serviceId && !c.IsDeleted, cancellationToken);
-            var captureList = captures.ToList();
-            foreach (var capture in captureList)
-            {
-                capture.IsDeleted = true;
-            }
-            return captureList.Count;
-        }, cancellationToken);
+        // No wrapping transaction: the repository deletes in batches that each commit on their own.
+        return await captureRepo.HardDeleteScopeAsync(serviceId, null, cancellationToken);
     }
 
     public async Task<int> GetCaptureCountAsync(Guid serviceId, CancellationToken cancellationToken = default)
@@ -90,26 +78,29 @@ public class WebhookCaptureService(
         }, cancellationToken);
     }
 
-    public async Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var (safePage, safeSize) = ClampPage(page, pageSize);
+        return await transactionManager.ExecuteInTransactionAsync(async () =>
+        {
+            var captures = await captureRepo.GetByIntegrationAsync(integrationId, safePage, safeSize, cancellationToken);
+            return captures.Select(c => c.Adapt<WebhookCaptureDto>());
+        }, cancellationToken);
+    }
+
+    public async Task<int> GetCaptureCountByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default)
     {
         return await transactionManager.ExecuteInTransactionAsync(async () =>
         {
-            var captures = await captureRepo.GetByIntegrationAsync(integrationId, cancellationToken);
-            return captures.Select(c => c.Adapt<WebhookCaptureDto>());
+            return await captureRepo.GetCountByIntegrationAsync(integrationId, cancellationToken);
         }, cancellationToken);
     }
 
     public async Task<int> DeleteAllCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default)
     {
-        return await transactionManager.ExecuteInTransactionAsync(async () =>
-        {
-            var captures = await captureRepo.FindAsync(c => c.IntegrationId == integrationId && !c.IsDeleted, cancellationToken);
-            var captureList = captures.ToList();
-            foreach (var capture in captureList)
-            {
-                capture.IsDeleted = true;
-            }
-            return captureList.Count;
-        }, cancellationToken);
+        return await captureRepo.HardDeleteScopeAsync(null, integrationId, cancellationToken);
     }
+
+    private static (int Page, int PageSize) ClampPage(int page, int pageSize) =>
+        (Math.Max(1, page), Math.Clamp(pageSize, 1, WebhookCapture.MaxPageSize));
 }

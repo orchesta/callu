@@ -20,7 +20,7 @@ public record IntegrationDto
     public bool ListeningMode { get; init; }
     public int CapturedCount { get; init; }
     public bool HasToken { get; init; }
-    /// <summary>Path the sender posts to. Contains the token, so it is only returned to admins.</summary>
+    /// <summary>Path the sender posts to; contains the token, so it is only returned to webhook managers.</summary>
     public string? WebhookUrl { get; init; }
     public bool HasApiKey { get; init; }
     public string? MaskedApiKey { get; init; }

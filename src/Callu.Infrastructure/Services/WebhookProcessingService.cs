@@ -69,7 +69,7 @@ public class WebhookProcessingService(
 
     /// <summary>Bounds the captured body size so a huge payload can't bloat the captures table.</summary>
     internal static string TrimForCapture(string body) =>
-        body.Length <= MaxCapturedBodyChars ? body : body[..MaxCapturedBodyChars] + "\n...[truncated]";
+        body.Length <= MaxCapturedBodyChars ? body : body[..MaxCapturedBodyChars] + WebhookCapture.TruncationSuffix;
 
     /// <summary>
     /// Bounds one ingested field to its column. No ellipsis (the value is a dedupe key) and the cut
@@ -140,30 +140,9 @@ public class WebhookProcessingService(
 
         if (service.WebhookListeningMode)
         {
-            var capture = new WebhookCapture
-            {
-                ServiceId = service.Id,
-                CapturedAt = DateTime.UtcNow,
-                Method = method,
-                ContentType = contentType,
-                SourceIp = sourceIp,
-                Headers = System.Text.Json.JsonSerializer.Serialize(
-                    RedactSensitiveHeaders(headers, service.WebhookSignatureHeader)),
-                Body = TrimForCapture(body),
-                Status = WebhookCaptureStatus.Captured
-            };
-
-            await captureRepo.TrimScopeForPendingInsertAsync(
-                service.Id, null, WebhookCapture.MaxPerScope, MaxCapTrimRowsPerRequest, cancellationToken);
-            await captureRepo.AddAsync(capture, cancellationToken);
-
-            return new WebhookProcessResult
-            {
-                Success = true,
-                Message = Messages.Get("webhooks.captured"),
-                CaptureId = capture.Id,
-                WasCaptured = true
-            };
+            return await CaptureRequestAsync(
+                service.Id, null, service.WebhookSignatureHeader,
+                method, contentType, body, headers, sourceIp, cancellationToken);
         }
 
         return await ProcessParsedAsync(
@@ -207,31 +186,9 @@ public class WebhookProcessingService(
         // with listening off, because the sender will not retry a rejection.
         if (integration.ListeningMode || boundService is null)
         {
-            var capture = new WebhookCapture
-            {
-                IntegrationId = integration.Id,
-                ServiceId = boundService?.Id,
-                CapturedAt = DateTime.UtcNow,
-                Method = method,
-                ContentType = contentType,
-                SourceIp = sourceIp,
-                Headers = System.Text.Json.JsonSerializer.Serialize(
-                    RedactSensitiveHeaders(headers, integration.WebhookSignatureHeader)),
-                Body = TrimForCapture(body),
-                Status = WebhookCaptureStatus.Captured
-            };
-
-            await captureRepo.TrimScopeForPendingInsertAsync(
-                null, integration.Id, WebhookCapture.MaxPerScope, MaxCapTrimRowsPerRequest, cancellationToken);
-            await captureRepo.AddAsync(capture, cancellationToken);
-
-            return new WebhookProcessResult
-            {
-                Success = true,
-                Message = Messages.Get("webhooks.captured"),
-                CaptureId = capture.Id,
-                WasCaptured = true
-            };
+            return await CaptureRequestAsync(
+                boundService?.Id, integration.Id, integration.WebhookSignatureHeader,
+                method, contentType, body, headers, sourceIp, cancellationToken);
         }
 
         var teamId = integration.TeamId ?? boundService.TeamId;
@@ -244,6 +201,44 @@ public class WebhookProcessingService(
             sourceIntegrationId: integration.Id,
             dataLanguage: integration.WebhookTemplate?.DataLanguage,
             cancellationToken);
+    }
+
+    private async Task<WebhookProcessResult> CaptureRequestAsync(
+        Guid? serviceId,
+        Guid? integrationId,
+        string? signatureHeader,
+        string method,
+        string? contentType,
+        string body,
+        IDictionary<string, string> headers,
+        string? sourceIp,
+        CancellationToken cancellationToken)
+    {
+        var capture = new WebhookCapture
+        {
+            ServiceId = serviceId,
+            IntegrationId = integrationId,
+            CapturedAt = DateTime.UtcNow,
+            Method = method,
+            ContentType = contentType,
+            SourceIp = sourceIp,
+            Headers = System.Text.Json.JsonSerializer.Serialize(
+                RedactSensitiveHeaders(headers, signatureHeader)),
+            Body = TrimForCapture(body),
+            Status = WebhookCaptureStatus.Captured
+        };
+
+        await captureRepo.TrimScopeForPendingInsertAsync(
+            serviceId, integrationId, WebhookCapture.MaxPerScope, MaxCapTrimRowsPerRequest, cancellationToken);
+        await captureRepo.AddAsync(capture, cancellationToken);
+
+        return new WebhookProcessResult
+        {
+            Success = true,
+            Message = Messages.Get("webhooks.captured"),
+            CaptureId = capture.Id,
+            WasCaptured = true
+        };
     }
 
     private WebhookProcessResult? Authenticate(

@@ -5,9 +5,16 @@ import type { WebhookCaptureDto } from '../types/webhook-capture.types';
 
 const BASE = '/api/v1/captures';
 
+export const CAPTURE_PAGE_SIZE = 50;
+
 export const capturesApi = {
-    getByService: (serviceId: string) =>
-        apiClient.get<WebhookCaptureDto[]>(`${BASE}/service/${serviceId}`),
+    getByService: (serviceId: string, page: number) =>
+        apiClient.get<WebhookCaptureDto[]>(
+            `${BASE}/service/${serviceId}?page=${page}&pageSize=${CAPTURE_PAGE_SIZE}`,
+        ),
+
+    getCountByService: (serviceId: string) =>
+        apiClient.get<{ count: number }>(`${BASE}/service/${serviceId}/count`),
 
     getById: (id: string) =>
         apiClient.get<WebhookCaptureDto>(`${BASE}/${id}`),

@@ -51,7 +51,7 @@ public class WebhookCaptureScopeTests : IDisposable
         SeedCapture(integrationId: other);
         SeedCapture(serviceId: Guid.NewGuid());
 
-        var captures = (await _sut.GetCapturesByIntegrationAsync(mine)).ToList();
+        var captures = (await _sut.GetCapturesByIntegrationAsync(mine, 1, 50)).ToList();
 
         Assert.Single(captures);
         Assert.Equal(mine, captures[0].IntegrationId);
@@ -71,9 +71,9 @@ public class WebhookCaptureScopeTests : IDisposable
         var deleted = await _sut.DeleteAllCapturesByIntegrationAsync(mine);
 
         Assert.Equal(2, deleted);
-        Assert.Empty(await _sut.GetCapturesByIntegrationAsync(mine));
-        Assert.Single(await _sut.GetCapturesByIntegrationAsync(other));
-        Assert.Single(await _sut.GetCapturesAsync(serviceId));
+        Assert.Empty(await _sut.GetCapturesByIntegrationAsync(mine, 1, 50));
+        Assert.Single(await _sut.GetCapturesByIntegrationAsync(other, 1, 50));
+        Assert.Single(await _sut.GetCapturesAsync(serviceId, 1, 50));
     }
 
     [Fact]
@@ -87,6 +87,71 @@ public class WebhookCaptureScopeTests : IDisposable
         var deleted = await _sut.DeleteAllCapturesAsync(serviceId);
 
         Assert.Equal(1, deleted);
-        Assert.Single(await _sut.GetCapturesByIntegrationAsync(integrationId));
+        Assert.Single(await _sut.GetCapturesByIntegrationAsync(integrationId, 1, 50));
+    }
+
+    [Fact]
+    public async Task TheServiceList_ExcludesCapturesThatArrivedThroughABoundIntegration()
+    {
+        var serviceId = Guid.NewGuid();
+        SeedCapture(serviceId: serviceId);
+        SeedCapture(serviceId: serviceId, integrationId: Guid.NewGuid());
+
+        var captures = (await _sut.GetCapturesAsync(serviceId, 1, 50)).ToList();
+
+        Assert.Single(captures);
+        Assert.Null(captures[0].IntegrationId);
+        Assert.Equal(1, await _sut.GetCaptureCountAsync(serviceId));
+    }
+
+    [Fact]
+    public async Task ClearingAService_LeavesABoundIntegrationsCapturesAlone()
+    {
+        var serviceId = Guid.NewGuid();
+        var integrationId = Guid.NewGuid();
+        SeedCapture(serviceId: serviceId);
+        SeedCapture(serviceId: serviceId, integrationId: integrationId);
+
+        var deleted = await _sut.DeleteAllCapturesAsync(serviceId);
+
+        Assert.Equal(1, deleted);
+        Assert.Single(await _sut.GetCapturesByIntegrationAsync(integrationId, 1, 50));
+    }
+
+    [Fact]
+    public async Task DeletingACapture_RemovesTheRowPermanently()
+    {
+        var id = SeedCapture(serviceId: Guid.NewGuid());
+
+        Assert.True(await _sut.DeleteCaptureAsync(id));
+
+        Assert.Empty(_ctx.Set<WebhookCapture>().IgnoreQueryFilters().Where(c => c.Id == id));
+        Assert.False(await _sut.DeleteCaptureAsync(id));
+    }
+
+    [Fact]
+    public async Task Pagination_ClampsPageZeroAndOversizedPageSize()
+    {
+        var serviceId = Guid.NewGuid();
+        for (var i = 0; i < 55; i++) SeedCapture(serviceId: serviceId);
+
+        var oversized = (await _sut.GetCapturesAsync(serviceId, 0, 5000)).ToList();
+        Assert.Equal(50, oversized.Count);
+
+        var secondPage = (await _sut.GetCapturesAsync(serviceId, 2, 50)).ToList();
+        Assert.Equal(5, secondPage.Count);
+    }
+
+    [Fact]
+    public async Task ClearingAScope_RemovesTheRowsPermanently()
+    {
+        var integrationId = Guid.NewGuid();
+        SeedCapture(integrationId: integrationId);
+        SeedCapture(integrationId: integrationId);
+
+        await _sut.DeleteAllCapturesByIntegrationAsync(integrationId);
+
+        Assert.Empty(_ctx.Set<WebhookCapture>().IgnoreQueryFilters()
+            .Where(c => c.IntegrationId == integrationId));
     }
 }

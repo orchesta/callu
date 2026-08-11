@@ -10,7 +10,7 @@ const createMutate = vi.fn();
 const updateTemplateMutate = vi.fn();
 const fromCaptureMutate = vi.fn();
 const setServiceTemplateMutate = vi.fn();
-const updateIntegrationMutate = vi.fn();
+const previewMutate = vi.fn();
 
 const serviceData = { value: undefined as unknown };
 const integrationData = { value: undefined as unknown };
@@ -32,11 +32,11 @@ vi.mock("@/features/settings/hooks/use-webhook-templates", () => ({
   useCreateWebhookTemplate: () => ({ mutate: createMutate, isPending: false }),
   useUpdateWebhookTemplate: () => ({ mutate: updateTemplateMutate, isPending: false }),
   useCreateWebhookTemplateFromCapture: () => ({ mutate: fromCaptureMutate, isPending: false }),
+  usePreviewWebhookTemplate: () => ({ mutate: previewMutate, isPending: false, data: undefined }),
 }));
 
 vi.mock("@/features/applications/hooks/use-integrations", () => ({
   useIntegration: (id: string | undefined) => ({ data: id ? integrationData.value : undefined }),
-  useUpdateIntegration: () => ({ mutate: updateIntegrationMutate, isPending: false }),
   integrationKeys: { all: ["integrations"] },
 }));
 
@@ -78,8 +78,7 @@ beforeEach(() => {
   integrationData.value = undefined;
   createMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.({ id: "tpl-new" }));
   fromCaptureMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.({ id: "tpl-cap" }));
-  updateIntegrationMutate.mockImplementation((_vars, opts) => opts?.onSettled?.());
-  setServiceTemplateMutate.mockImplementation((_vars, opts) => opts?.onSettled?.());
+  setServiceTemplateMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.());
 });
 
 describe("application scope", () => {
@@ -97,11 +96,10 @@ describe("application scope", () => {
     expect(fromCaptureMutate).toHaveBeenCalledTimes(1);
     expect(fromCaptureMutate.mock.calls[0][0]).toMatchObject({ captureId: "cap-1" });
     expect(createMutate).not.toHaveBeenCalled();
-    expect(updateIntegrationMutate).not.toHaveBeenCalled();
     expect(setServiceTemplateMutate).not.toHaveBeenCalled();
   });
 
-  it("creates a hand-written template, then points the application at it", async () => {
+  it("creates a hand-written template in one call carrying the attach id", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     integrationData.value = INTEGRATION;
     renderAt(
@@ -114,22 +112,10 @@ describe("application scope", () => {
     await save(user);
 
     expect(createMutate).toHaveBeenCalledTimes(1);
-    expect(updateIntegrationMutate).toHaveBeenCalledTimes(1);
-    expect(createMutate.mock.invocationCallOrder[0]).toBeLessThan(
-      updateIntegrationMutate.mock.invocationCallOrder[0],
-    );
-
-    const vars = updateIntegrationMutate.mock.calls[0][0];
-    expect(vars).toMatchObject({
-      id: "int-1",
-      name: "Payments Gateway",
-      description: "gateway hooks",
-      teamId: "team-1",
-      webhookTemplateId: "tpl-new",
-      isActive: true,
-      webhookEnabled: true,
+    expect(createMutate.mock.calls[0][0]).toMatchObject({
+      name: "My Template",
+      attachToIntegrationId: "int-1",
     });
-    expect(vars).not.toHaveProperty("listeningMode");
     expect(setServiceTemplateMutate).not.toHaveBeenCalled();
     expect(fromCaptureMutate).not.toHaveBeenCalled();
   });
@@ -150,7 +136,6 @@ describe("service scope", () => {
       serviceId: "svc-1",
       templateId: "tpl-new",
     });
-    expect(updateIntegrationMutate).not.toHaveBeenCalled();
     expect(fromCaptureMutate).not.toHaveBeenCalled();
   });
 });

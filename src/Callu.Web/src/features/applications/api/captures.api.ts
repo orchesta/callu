@@ -1,21 +1,20 @@
-/** Integration-scoped capture reads/purge, plus the template dry-run used by parse preview. */
+/** Integration-scoped capture reads/purge, served from /api/v1/captures. */
 
 import { apiClient } from '@/shared/api';
 import type { WebhookCaptureDto } from '@/features/services/types/webhook-capture.types';
-import type { WebhookTemplateTestResult } from '@/features/settings/types/webhook-template.types';
+import { CAPTURE_PAGE_SIZE } from '@/features/services/api/captures.api';
 
 const BASE = '/api/v1/captures';
 
 export const integrationCapturesApi = {
-    getByIntegration: (integrationId: string) =>
-        apiClient.get<WebhookCaptureDto[]>(`${BASE}/integration/${integrationId}`),
+    getByIntegration: (integrationId: string, page: number) =>
+        apiClient.get<WebhookCaptureDto[]>(
+            `${BASE}/integration/${integrationId}?page=${page}&pageSize=${CAPTURE_PAGE_SIZE}`,
+        ),
+
+    getCountByIntegration: (integrationId: string) =>
+        apiClient.get<{ count: number }>(`${BASE}/integration/${integrationId}/count`),
 
     deleteAll: (integrationId: string) =>
         apiClient.delete<{ deletedCount: number }>(`${BASE}/integration/${integrationId}`),
-
-    testTemplate: (templateId: string, samplePayload: string) =>
-        apiClient.post<WebhookTemplateTestResult>(
-            `/api/v1/webhook-templates/${templateId}/test`,
-            { samplePayload },
-        ),
 };
