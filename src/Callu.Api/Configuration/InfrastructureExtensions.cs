@@ -105,6 +105,11 @@ public static class InfrastructureExtensions
             }
         });
 
+        var webhookLimits = builder.Configuration
+            .GetSection(Callu.Infrastructure.Configuration.WebhookRateLimitOptions.SectionName)
+            .Get<Callu.Infrastructure.Configuration.WebhookRateLimitOptions>()
+            ?? new Callu.Infrastructure.Configuration.WebhookRateLimitOptions();
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = 429;
@@ -114,9 +119,9 @@ public static class InfrastructureExtensions
                     partitionKey: GetClientIp(httpContext),
                     factory: _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = 100,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 10,
+                        PermitLimit = Math.Max(1, webhookLimits.PermitLimit),
+                        Window = TimeSpan.FromSeconds(Math.Max(1, webhookLimits.WindowSeconds)),
+                        QueueLimit = Math.Max(0, webhookLimits.QueueLimit),
                         QueueProcessingOrder = QueueProcessingOrder.OldestFirst
                     }));
 

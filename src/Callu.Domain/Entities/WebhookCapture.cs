@@ -9,15 +9,28 @@ namespace Callu.Domain.Entities;
 /// </summary>
 public class WebhookCapture : BaseEntity
 {
+    /// <summary>How many captures one endpoint keeps; the oldest beyond this are dropped on write.</summary>
+    public const int MaxPerScope = 500;
+
     /// <summary>
-    /// Service this capture belongs to
+    /// Service this capture belongs to (absent for captures taken on an unbound integration)
     /// </summary>
-    public Guid ServiceId { get; set; }
-    
+    public Guid? ServiceId { get; set; }
+
     /// <summary>
     /// Navigation property for service
     /// </summary>
-    public virtual Service Service { get; set; } = null!;
+    public virtual Service? Service { get; set; }
+
+    /// <summary>
+    /// Integration this capture arrived through (absent for captures taken on a service token)
+    /// </summary>
+    public Guid? IntegrationId { get; set; }
+
+    /// <summary>
+    /// Navigation property for integration
+    /// </summary>
+    public virtual Integration? Integration { get; set; }
     
     /// <summary>
     /// When the request was captured

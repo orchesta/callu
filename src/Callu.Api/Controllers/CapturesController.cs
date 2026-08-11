@@ -49,4 +49,18 @@ public class CapturesController(IWebhookCaptureService captureService) : Control
         var count = await captureService.DeleteAllCapturesAsync(serviceId, ct);
         return Ok(new { deletedCount = count });
     }
+
+    [HttpGet("integration/{integrationId:guid}")]
+    public async Task<IActionResult> GetByIntegration(Guid integrationId, CancellationToken ct)
+    {
+        var captures = await captureService.GetCapturesByIntegrationAsync(integrationId, ct);
+        return Ok(captures);
+    }
+
+    [HttpDelete("integration/{integrationId:guid}")]
+    public async Task<IActionResult> DeleteAllByIntegration(Guid integrationId, CancellationToken ct)
+    {
+        var count = await captureService.DeleteAllCapturesByIntegrationAsync(integrationId, ct);
+        return Ok(new { deletedCount = count });
+    }
 }

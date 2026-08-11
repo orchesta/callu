@@ -23,6 +23,7 @@ import {
   Wrench,
   ScrollText,
   Activity,
+  Webhook,
   type LucideIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -51,6 +52,7 @@ const NAV_DEFS: NavDef[] = [
   { labelKey: "nav.conferences", href: "/conferences", icon: Video },
 
   { labelKey: "nav.services", href: "/services", icon: Server, groupKey: "nav.groupConfigure" },
+  { labelKey: "nav.applications", href: "/applications", icon: Webhook },
   { labelKey: "nav.escalations", href: "/escalations", icon: Zap },
   { labelKey: "nav.schedules", href: "/schedules", icon: Calendar },
   { labelKey: "nav.teams", href: "/teams", icon: Users },

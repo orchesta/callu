@@ -5,6 +5,7 @@ using Callu.Domain.Enums;
 using Callu.Infrastructure.Persistence;
 using Callu.Infrastructure.Persistence.Repositories;
 using Callu.Infrastructure.Services;
+using Callu.Shared.Exceptions;
 using Callu.Shared.Models.Integrations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,6 +35,7 @@ public class IntegrationServiceTests : IDisposable
             new IntegrationRepository(_ctx, NullLogger<IntegrationRepository>.Instance),
             new ServiceRepository(_ctx, NullLogger<ServiceRepository>.Instance),
             new WebhookTemplateRepository(_ctx, NullLogger<WebhookTemplateRepository>.Instance),
+            new WebhookCaptureRepository(_ctx, NullLogger<WebhookCaptureRepository>.Instance),
             _audit,
             _currentUser,
             new SavingTransactionManager(_ctx),
@@ -101,5 +103,96 @@ public class IntegrationServiceTests : IDisposable
 
         Assert.NotEqual(created.WebhookToken, rotated.WebhookToken);
         Assert.NotEqual(created.ApiKey, rotated.ApiKey);
+    }
+
+    [Fact]
+    public async Task AnIntegrationCanBeCreatedWithoutAService_AndDefaultsToListening()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest
+        {
+            Name = "Zabbix",
+            Type = "Webhook"
+        });
+
+        var stored = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == secrets.Id);
+        Assert.Null(stored.ServiceId);
+        Assert.True(stored.ListeningMode);
+    }
+
+    [Fact]
+    public async Task CreatingWithAService_DefaultsListeningOff()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest
+        {
+            Name = "Grafana",
+            Type = "Grafana",
+            ServiceId = _serviceId
+        });
+
+        var stored = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == secrets.Id);
+        Assert.False(stored.ListeningMode);
+    }
+
+    [Fact]
+    public async Task UpdateWithNullListeningMode_LeavesItUnchanged()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest
+        {
+            Name = "Zabbix",
+            Type = "Webhook",
+            ListeningMode = true,
+            ServiceId = _serviceId
+        });
+
+        await _sut.UpdateAsync(secrets.Id, new UpdateIntegrationRequest
+        {
+            Name = "Zabbix",
+            ListeningMode = null
+        });
+
+        var stored = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == secrets.Id);
+        Assert.True(stored.ListeningMode);
+    }
+
+    [Fact]
+    public async Task BindingToAMissingService_ThrowsNotFound()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest { Name = "Zabbix", Type = "Webhook" });
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.BindServiceAsync(secrets.Id, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task BindingAService_SetsIt_AndUnbindingClearsIt()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest { Name = "Zabbix", Type = "Webhook" });
+
+        var bound = await _sut.BindServiceAsync(secrets.Id, _serviceId);
+        Assert.Equal(_serviceId, bound.ServiceId);
+
+        var unbound = await _sut.BindServiceAsync(secrets.Id, null);
+        Assert.Null(unbound.ServiceId);
+    }
+
+    [Fact]
+    public async Task UpdateWithListeningModeSet_AppliesIt()
+    {
+        var secrets = await _sut.CreateAsync(new CreateIntegrationRequest
+        {
+            Name = "Zabbix",
+            Type = "Webhook",
+            ListeningMode = true,
+            ServiceId = _serviceId
+        });
+
+        await _sut.UpdateAsync(secrets.Id, new UpdateIntegrationRequest
+        {
+            Name = "Zabbix",
+            ListeningMode = false
+        });
+
+        var stored = await _ctx.Integrations.AsNoTracking().SingleAsync(i => i.Id == secrets.Id);
+        Assert.False(stored.ListeningMode);
     }
 }

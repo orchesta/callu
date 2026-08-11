@@ -6,7 +6,8 @@ namespace Callu.Shared.Models.Webhooks;
 public record WebhookCaptureDto
 {
     public Guid Id { get; init; }
-    public Guid ServiceId { get; init; }
+    public Guid? ServiceId { get; init; }
+    public Guid? IntegrationId { get; init; }
     public DateTime CapturedAt { get; init; }
     public string Method { get; init; } = "POST";
     public string? ContentType { get; init; }

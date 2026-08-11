@@ -5,7 +5,9 @@
 
 export interface WebhookCaptureDto {
     id: string;
-    serviceId: string;
+    /** Absent when the capture came in through an unbound integration endpoint. */
+    serviceId?: string;
+    integrationId?: string;
     capturedAt: string;
     method: 'GET' | 'POST' | 'PUT' | 'PATCH';
     contentType?: string;

@@ -16,6 +16,7 @@ public class IntegrationService(
     IIntegrationRepository repo,
     IServiceRepository serviceRepo,
     IWebhookTemplateRepository templateRepo,
+    IWebhookCaptureRepository captureRepo,
     IAuditLogService auditLog,
     ICurrentUserService currentUser,
     ITransactionManager transactionManager,
@@ -40,7 +41,8 @@ public class IntegrationService(
             .ThenBy(i => i.Id)
             .ToListAsync(cancellationToken);
 
-        return items.Select(MapToDto).ToList();
+        var captureCounts = await captureRepo.GetCountsByIntegrationAsync(cancellationToken);
+        return items.Select(i => MapToDto(i, captureCounts.GetValueOrDefault(i.Id))).ToList();
     }
 
     public async Task<IntegrationDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -52,12 +54,14 @@ public class IntegrationService(
             .Include(i => i.WebhookTemplate)
             .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken);
 
-        return item is null ? null : MapToDto(item);
+        if (item is null) return null;
+        return MapToDto(item, await captureRepo.GetCountByIntegrationAsync(item.Id, cancellationToken));
     }
 
     public async Task<IntegrationSecretsDto> CreateAsync(CreateIntegrationRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureServiceExistsAsync(request.ServiceId, cancellationToken);
+        if (request.ServiceId is { } requestedServiceId)
+            await EnsureServiceExistsAsync(requestedServiceId, cancellationToken);
         await EnsureTemplateExistsAsync(request.WebhookTemplateId, cancellationToken);
 
         return await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -71,6 +75,8 @@ public class IntegrationService(
                 ServiceId = request.ServiceId,
                 TeamId = request.TeamId,
                 WebhookTemplateId = request.WebhookTemplateId,
+                // An endpoint born without a service defaults to listening, so its first alarm is kept.
+                ListeningMode = request.ListeningMode ?? !request.ServiceId.HasValue,
                 Direction = IntegrationDirection.Inbound,
                 Mode = IntegrationMode.WebhookOnly,
                 IsActive = true,
@@ -116,7 +122,7 @@ public class IntegrationService(
                 .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)
                 ?? throw new NotFoundException(EntityName, id);
 
-            var before = $"name={entity.Name}; template={entity.WebhookTemplateId}; active={entity.IsActive}; webhook={entity.WebhookEnabled}";
+            var before = $"name={entity.Name}; template={entity.WebhookTemplateId}; active={entity.IsActive}; webhook={entity.WebhookEnabled}; listening={entity.ListeningMode}";
 
             entity.Name = request.Name;
             entity.Description = request.Description;
@@ -124,6 +130,10 @@ public class IntegrationService(
             entity.WebhookTemplateId = request.WebhookTemplateId;
             entity.IsActive = request.IsActive;
             entity.WebhookEnabled = request.WebhookEnabled;
+
+            // Null means "leave listening alone", so a client built before this field cannot reset it.
+            if (request.ListeningMode is { } listening)
+                entity.ListeningMode = listening;
 
             // Null means "leave the secret alone"; an empty string is how the admin clears it.
             if (request.WebhookSecret is not null)
@@ -146,7 +156,7 @@ public class IntegrationService(
             await auditLog.LogAsync(
                 currentUser.UserId, AuditAction.Updated, EntityName, entity.Id.ToString(),
                 oldValues: before,
-                newValues: $"name={entity.Name}; template={entity.WebhookTemplateId}; active={entity.IsActive}; webhook={entity.WebhookEnabled}",
+                newValues: $"name={entity.Name}; template={entity.WebhookTemplateId}; active={entity.IsActive}; webhook={entity.WebhookEnabled}; listening={entity.ListeningMode}",
                 description: $"Inbound integration '{entity.Name}' updated",
                 cancellationToken: cancellationToken);
 
@@ -216,6 +226,45 @@ public class IntegrationService(
         }, cancellationToken);
     }
 
+    public async Task<IntegrationDto> BindServiceAsync(Guid id, Guid? serviceId, CancellationToken cancellationToken = default)
+    {
+        if (serviceId is { } targetServiceId)
+            await EnsureServiceExistsAsync(targetServiceId, cancellationToken);
+
+        var bound = await transactionManager.ExecuteInTransactionAsync(async () =>
+        {
+            var entity = await repo.GetQueryable()
+                .Include(i => i.Service)
+                .Include(i => i.Team)
+                .Include(i => i.WebhookTemplate)
+                .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)
+                ?? throw new NotFoundException(EntityName, id);
+
+            var before = $"service={entity.ServiceId}";
+            entity.ServiceId = serviceId;
+            entity.Service = null;
+            entity.UpdatedAt = DateTime.UtcNow;
+            repo.Update(entity);
+
+            await auditLog.LogAsync(
+                currentUser.UserId, AuditAction.Updated, EntityName, entity.Id.ToString(),
+                oldValues: before,
+                newValues: $"service={serviceId}",
+                description: serviceId is null
+                    ? $"Inbound integration '{entity.Name}' unbound; it now captures instead of creating incidents"
+                    : $"Inbound integration '{entity.Name}' bound to service {serviceId}",
+                cancellationToken: cancellationToken);
+
+            logger.LogInformation(
+                "Integration {IntegrationId} service binding changed to {ServiceId}", entity.Id, serviceId);
+
+            return entity.Id;
+        }, cancellationToken);
+
+        return await GetByIdAsync(bound, cancellationToken)
+            ?? throw new NotFoundException(EntityName, bound);
+    }
+
     private async Task EnsureServiceExistsAsync(Guid serviceId, CancellationToken cancellationToken)
     {
         var exists = await serviceRepo.GetQueryable()
@@ -238,7 +287,7 @@ public class IntegrationService(
 
     private static string WebhookUrl(string? token) => $"/api/v1/webhooks/{token}";
 
-    private static IntegrationDto MapToDto(Integration i) => new()
+    private static IntegrationDto MapToDto(Integration i, int capturedCount = 0) => new()
     {
         Id = i.Id,
         Name = i.Name,
@@ -252,6 +301,8 @@ public class IntegrationService(
         WebhookTemplateName = i.WebhookTemplate?.Name,
         IsActive = i.IsActive,
         WebhookEnabled = i.WebhookEnabled,
+        ListeningMode = i.ListeningMode,
+        CapturedCount = capturedCount,
         HasToken = !string.IsNullOrEmpty(i.WebhookToken),
         WebhookUrl = string.IsNullOrEmpty(i.WebhookToken) ? null : WebhookUrl(i.WebhookToken),
         HasApiKey = !string.IsNullOrEmpty(i.ApiKey),

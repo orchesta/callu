@@ -168,6 +168,7 @@ export const ROUTE_PERMISSIONS: ReadonlyArray<{ prefix: string; permission: Perm
   { prefix: '/settings', permission: PERMISSIONS.ManageSettings },
   { prefix: '/maintenance', permission: PERMISSIONS.ManageSettings },
   { prefix: '/diagnostics', permission: PERMISSIONS.ManageSettings },
+  { prefix: '/applications', permission: PERMISSIONS.ManageWebhooks },
 ];
 
 /** True when the role may open `pathname`. Longest matching prefix wins. */

@@ -17,6 +17,8 @@ public record IntegrationDto
     public string? WebhookTemplateName { get; init; }
     public bool IsActive { get; init; }
     public bool WebhookEnabled { get; init; }
+    public bool ListeningMode { get; init; }
+    public int CapturedCount { get; init; }
     public bool HasToken { get; init; }
     /// <summary>Path the sender posts to. Contains the token, so it is only returned to admins.</summary>
     public string? WebhookUrl { get; init; }
@@ -47,11 +49,19 @@ public class CreateIntegrationRequest
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = "Webhook";
     public string? Description { get; set; }
-    public Guid ServiceId { get; set; }
+    /// <summary>Absent means the endpoint starts unbound and captures everything it receives.</summary>
+    public Guid? ServiceId { get; set; }
     public Guid? TeamId { get; set; }
     public Guid? WebhookTemplateId { get; set; }
+    public bool? ListeningMode { get; set; }
     public string? WebhookSecret { get; set; }
     public string? WebhookSignatureHeader { get; set; }
+}
+
+public class BindIntegrationServiceRequest
+{
+    /// <summary>Target service; null unbinds the endpoint back to capture-only.</summary>
+    public Guid? ServiceId { get; set; }
 }
 
 public class UpdateIntegrationRequest
@@ -62,6 +72,8 @@ public class UpdateIntegrationRequest
     public Guid? WebhookTemplateId { get; set; }
     public bool IsActive { get; set; } = true;
     public bool WebhookEnabled { get; set; } = true;
+    /// <summary>Null leaves listening mode untouched, so an older client cannot switch it off.</summary>
+    public bool? ListeningMode { get; set; }
     /// <summary>Null leaves the current secret untouched; empty string clears it.</summary>
     public string? WebhookSecret { get; set; }
     public string? WebhookSignatureHeader { get; set; }

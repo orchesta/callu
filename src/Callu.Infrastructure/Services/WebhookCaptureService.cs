@@ -89,4 +89,27 @@ public class WebhookCaptureService(
             return await captureRepo.GetCountByServiceAsync(serviceId, cancellationToken);
         }, cancellationToken);
     }
+
+    public async Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default)
+    {
+        return await transactionManager.ExecuteInTransactionAsync(async () =>
+        {
+            var captures = await captureRepo.GetByIntegrationAsync(integrationId, cancellationToken);
+            return captures.Select(c => c.Adapt<WebhookCaptureDto>());
+        }, cancellationToken);
+    }
+
+    public async Task<int> DeleteAllCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default)
+    {
+        return await transactionManager.ExecuteInTransactionAsync(async () =>
+        {
+            var captures = await captureRepo.FindAsync(c => c.IntegrationId == integrationId && !c.IsDeleted, cancellationToken);
+            var captureList = captures.ToList();
+            foreach (var capture in captureList)
+            {
+                capture.IsDeleted = true;
+            }
+            return captureList.Count;
+        }, cancellationToken);
+    }
 }

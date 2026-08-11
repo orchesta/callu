@@ -41,4 +41,14 @@ public interface IWebhookCaptureService
     /// Get capture count for a service
     /// </summary>
     Task<int> GetCaptureCountAsync(Guid serviceId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get captures for an integration
+    /// </summary>
+    Task<IEnumerable<WebhookCaptureDto>> GetCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete all captures for an integration
+    /// </summary>
+    Task<int> DeleteAllCapturesByIntegrationAsync(Guid integrationId, CancellationToken cancellationToken = default);
 }

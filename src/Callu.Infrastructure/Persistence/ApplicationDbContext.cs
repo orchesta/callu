@@ -296,12 +296,20 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
         modelBuilder.Entity<WebhookCapture>(entity =>
         {
             entity.HasIndex(e => e.ServiceId);
+            entity.HasIndex(e => e.IntegrationId);
             entity.HasIndex(e => e.CapturedAt);
             entity.HasIndex(e => e.Status);
 
+            // Cascade is stated on both owners: EF's default for an optional FK is ClientSetNull,
+            // which would silently stop deleting captures with their endpoint.
             entity.HasOne(e => e.Service)
                 .WithMany(s => s.WebhookCaptures)
                 .HasForeignKey(e => e.ServiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Integration)
+                .WithMany()
+                .HasForeignKey(e => e.IntegrationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

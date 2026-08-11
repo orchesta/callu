@@ -25,6 +25,8 @@ import {
   Zap,
   Copy,
   Check,
+  FlaskConical,
+  Link2,
 } from "lucide-react";
 import {
   useCapturesByService,
@@ -33,9 +35,15 @@ import {
   useDeleteAllCaptures,
 } from "../hooks/use-captures";
 import type { WebhookCaptureDto } from "../types/webhook-capture.types";
-import { useService } from "../hooks/use-services";
+import { useService, serviceQueries, useCreateService } from "../hooks/use-services";
 import { getLocale, t } from "@/shared/locales/i18n";
 import { useLocaleTick } from "@/shared/hooks/use-locale-tick";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiQueryOptions, useApiMutation } from "@/shared/api";
+import { integrationCapturesApi } from "@/features/applications/api/captures.api";
+import { useIntegration, useBindIntegrationService } from "@/features/applications/hooks/use-integrations";
+import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
 
 function formatRelativeTime(
   dateStr: string,
@@ -107,23 +115,66 @@ const CaptureStats = React.memo(function CaptureStats({ captures }: { captures: 
   );
 });
 
-export function WebhookCaptures() {
-  const { id: serviceId = "" } = useParams();
+interface WebhookCapturesProps {
+  /** 'application' reads the route :id as an integration id; default is the service page. */
+  scope?: "service" | "application";
+}
+
+export function WebhookCaptures({ scope = "service" }: WebhookCapturesProps) {
+  const { id = "" } = useParams();
+  const isApplication = scope === "application";
+  const serviceId = isApplication ? "" : id;
+  const integrationId = isApplication ? id : "";
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: service } = useService(serviceId);
+  const { data: integration } = useIntegration(isApplication ? integrationId : undefined);
 
   const i18nTick = useLocaleTick();
 
-  const { data: captures = [], isLoading } = useCapturesByService(serviceId);
+  const { data: serviceCaptures = [], isLoading: isServiceLoading } = useCapturesByService(serviceId);
+  const { data: integrationCaptures = [], isLoading: isIntegrationLoading } = useQuery(
+    apiQueryOptions(
+      ["captures", "integration", integrationId],
+      () => integrationCapturesApi.getByIntegration(integrationId),
+      { enabled: isApplication && !!integrationId },
+    ),
+  );
+  const captures = isApplication ? integrationCaptures : serviceCaptures;
+  const isLoading = isApplication ? isIntegrationLoading : isServiceLoading;
+
   const markReviewedMutation = useMarkCaptureReviewed();
   const deleteMutation = useDeleteCapture();
   const deleteAllMutation = useDeleteAllCaptures();
+  const clearIntegrationCapturesMutation = useApiMutation(
+    (intId: string) => integrationCapturesApi.deleteAll(intId),
+    {
+      successMessage: "All captures cleared",
+      onSuccess: () =>
+        queryClient.invalidateQueries({ queryKey: ["captures", "integration", integrationId] }),
+    },
+  );
+  const previewParseMutation = useApiMutation(
+    ({ templateId, samplePayload }: { templateId: string; samplePayload: string }) =>
+      integrationCapturesApi.testTemplate(templateId, samplePayload),
+    { successMessage: false },
+  );
+
+  const { data: services = [] } = useQuery({ ...serviceQueries.all(), enabled: isApplication });
+  const createServiceMutation = useCreateService();
+  const bindServiceMutation = useBindIntegrationService();
+
+  const boundTemplateId = isApplication ? integration?.webhookTemplateId : service?.webhookTemplateId;
 
   const [selectedCapture, setSelectedCapture] = useState<WebhookCaptureDto | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("body");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isBindModalOpen, setIsBindModalOpen] = useState(false);
+  const [bindMode, setBindMode] = useState<"select" | "create">("select");
+  const [bindServiceId, setBindServiceId] = useState<string | null>(null);
+  const [newServiceName, setNewServiceName] = useState("");
 
   const getMethodBadge = (method: string) => {
     switch (method) {
@@ -143,6 +194,7 @@ export function WebhookCaptures() {
   };
 
   const handleViewCapture = (capture: WebhookCaptureDto) => {
+    previewParseMutation.reset();
     setSelectedCapture(capture);
     setIsDetailModalOpen(true);
   };
@@ -164,14 +216,58 @@ export function WebhookCaptures() {
 
   const handleClearAll = async () => {
     try {
-      await deleteAllMutation.mutateAsync(serviceId);
+      if (isApplication) {
+        await clearIntegrationCapturesMutation.mutateAsync(integrationId);
+      } else {
+        await deleteAllMutation.mutateAsync(serviceId);
+      }
       setIsDeleteAllModalOpen(false);
     } catch { /* empty */ }
   };
 
   const handleUseForTemplate = (captureId: string) => {
-    navigate(`/services/${serviceId}/template?captureId=${captureId}`);
+    navigate(
+      isApplication
+        ? `/applications/${integrationId}/template?captureId=${captureId}`
+        : `/services/${serviceId}/template?captureId=${captureId}`,
+    );
   };
+
+  const handlePreviewParse = () => {
+    if (!boundTemplateId || !selectedCapture) return;
+    previewParseMutation.mutate({ templateId: boundTemplateId, samplePayload: selectedCapture.body });
+  };
+
+  const closeBindModal = () => {
+    setIsBindModalOpen(false);
+    setBindMode("select");
+    setBindServiceId(null);
+    setNewServiceName("");
+  };
+
+  const handleBindExisting = async () => {
+    if (!bindServiceId) return;
+    try {
+      await bindServiceMutation.mutateAsync({ id: integrationId, serviceId: bindServiceId });
+      closeBindModal();
+    } catch { /* empty */ }
+  };
+
+  const handleCreateAndBind = async () => {
+    const name = newServiceName.trim();
+    if (!name) return;
+    try {
+      const created = await createServiceMutation.mutateAsync({ name, type: "Api" });
+      await bindServiceMutation.mutateAsync({ id: integrationId, serviceId: created.id });
+      closeBindModal();
+    } catch { /* empty */ }
+  };
+
+  const bindSelectedService = services.find((svc) => svc.id === bindServiceId);
+  const showNoTeamWarning =
+    isApplication &&
+    !integration?.teamId &&
+    (bindMode === "create" ? true : !!bindSelectedService && !bindSelectedService.teamName);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -195,33 +291,74 @@ export function WebhookCaptures() {
             <Home className="w-4 h-4" />
           </Link>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          <Link to="/services" className="text-muted-foreground hover:text-foreground transition-colors">
-            {t("services.title")}
-          </Link>
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          <Link to={`/services/${serviceId}`} className="text-muted-foreground hover:text-foreground transition-colors">
-            {service?.name ?? t("services.varGroupService")}
-          </Link>
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          <span className="text-foreground font-medium">{t("webhookCaptures.pageTitle")}</span>
+          {isApplication ? (
+            <>
+              <Link to="/applications" className="text-muted-foreground hover:text-foreground transition-colors">
+                {t("applications.captures.breadcrumbRoot")}
+              </Link>
+              {integration?.name && (
+                <>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">{integration.name}</span>
+                </>
+              )}
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              <span className="text-foreground font-medium">{t("applications.captures.title")}</span>
+            </>
+          ) : (
+            <>
+              <Link to="/services" className="text-muted-foreground hover:text-foreground transition-colors">
+                {t("services.title")}
+              </Link>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              <Link to={`/services/${serviceId}`} className="text-muted-foreground hover:text-foreground transition-colors">
+                {service?.name ?? t("services.varGroupService")}
+              </Link>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              <span className="text-foreground font-medium">{t("webhookCaptures.pageTitle")}</span>
+            </>
+          )}
         </nav>
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 style={{ fontSize: '1.875rem', fontWeight: 600 }}>{t("webhookCaptures.pageTitle")}</h1>
+            <h1 style={{ fontSize: '1.875rem', fontWeight: 600 }}>
+              {isApplication ? t("applications.captures.title") : t("webhookCaptures.pageTitle")}
+            </h1>
             <p style={{ fontSize: '0.875rem', color: '#94A3B8', marginTop: '0.25rem' }}>
-              {t("webhookCaptures.pageSubtitle")}
+              {isApplication ? t("applications.captures.subtitle") : t("webhookCaptures.pageSubtitle")}
             </p>
           </div>
-          <Button
-            onClick={() => setIsDeleteAllModalOpen(true)}
-            disabled={captures.length === 0}
-            variant="outline"
-            className="bg-input-background hover:bg-error-500/10 hover:text-error-500"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            {t("webhookCaptures.clearAll")}
-          </Button>
+          {isApplication ? (
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setIsBindModalOpen(true)}
+                className="bg-brand-500 hover:bg-brand-600 text-white"
+              >
+                <Link2 className="w-4 h-4 mr-2" />
+                {t("applications.captures.bindToService")}
+              </Button>
+              <Button
+                onClick={() => setIsDeleteAllModalOpen(true)}
+                disabled={captures.length === 0}
+                variant="outline"
+                className="bg-input-background hover:bg-error-500/10 hover:text-error-500"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                {t("webhookCaptures.clearAll")}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              onClick={() => setIsDeleteAllModalOpen(true)}
+              disabled={captures.length === 0}
+              variant="outline"
+              className="bg-input-background hover:bg-error-500/10 hover:text-error-500"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {t("webhookCaptures.clearAll")}
+            </Button>
+          )}
         </div>
 
         <CaptureStats key={i18nTick} captures={captures} />
@@ -314,9 +451,9 @@ export function WebhookCaptures() {
               {t("webhookCaptures.emptyTitle")}
             </h3>
             <p style={{ fontSize: '0.875rem', color: '#94A3B8', marginBottom: '1.5rem', maxWidth: '32rem', margin: '0 auto' }}>
-              {t("webhookCaptures.emptyDesc")}
+              {isApplication ? t("applications.captures.emptyDesc") : t("webhookCaptures.emptyDesc")}
             </p>
-            <Link to={`/services/${serviceId}`}>
+            <Link to={isApplication ? "/applications" : `/services/${serviceId}`}>
               <Button className="bg-brand-500 hover:bg-brand-600">
                 <Radio className="w-4 h-4 mr-2" />
                 {t("webhookCaptures.enableListening")}
@@ -326,7 +463,13 @@ export function WebhookCaptures() {
         )}
       </div>
 
-      <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
+      <Dialog
+        open={isDetailModalOpen}
+        onOpenChange={(open) => {
+          setIsDetailModalOpen(open);
+          if (!open) previewParseMutation.reset();
+        }}
+      >
         <DialogContent className="bg-card border-border sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
           {selectedCapture && (
             <>
@@ -443,6 +586,61 @@ export function WebhookCaptures() {
                   </TabsContent>
                 </Tabs>
 
+                <div className="pt-4 border-t border-border space-y-3">
+                  {boundTemplateId ? (
+                    <>
+                      <div className="flex items-center justify-between gap-4">
+                        <p style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                          {t("applications.captures.previewParse")}
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={previewParseMutation.isPending}
+                          onClick={handlePreviewParse}
+                          className="bg-input-background"
+                        >
+                          <FlaskConical className="w-4 h-4 mr-2" />
+                          {previewParseMutation.isPending
+                            ? t("webhookTemplates.running")
+                            : t("applications.captures.previewParse")}
+                        </Button>
+                      </div>
+                      {previewParseMutation.data && (
+                        <div className="rounded-md border border-border p-3">
+                          {previewParseMutation.data.success ? (
+                            <>
+                              <p className="mb-2 text-xs font-semibold text-muted-foreground">
+                                {t("webhookTemplates.mapped")}
+                              </p>
+                              <dl className="space-y-1 text-sm">
+                                {Object.entries(previewParseMutation.data.mappedFields).map(([field, value]) => (
+                                  <div key={field} className="flex gap-2">
+                                    <dt className="w-40 flex-shrink-0 font-mono text-xs text-muted-foreground">
+                                      {field}
+                                    </dt>
+                                    <dd className={value ? "" : "text-muted-foreground italic"}>
+                                      {value ?? t("webhookTemplates.unmapped")}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </>
+                          ) : (
+                            <p className="text-sm text-error-400">
+                              {previewParseMutation.data.errorMessage || t("webhookTemplates.testFailed")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{ fontSize: '0.8125rem', color: '#94A3B8' }}>
+                      {t("applications.captures.noTemplateHint")}
+                    </p>
+                  )}
+                </div>
+
                 <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
                   {selectedCapture.status !== 'Reviewed' && (
                     <Button
@@ -522,6 +720,120 @@ export function WebhookCaptures() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isApplication && (
+        <Dialog open={isBindModalOpen} onOpenChange={(open) => { if (!open) closeBindModal(); }}>
+          <DialogContent className="bg-card border-border sm:max-w-[520px]">
+            <DialogHeader>
+              <DialogTitle style={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                {t("applications.captures.bindToService")}
+              </DialogTitle>
+              <DialogDescription style={{ fontSize: '0.875rem', color: '#94A3B8' }}>
+                {t("applications.captures.bindDialogDesc")}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={bindMode === "select" ? "default" : "outline"}
+                  onClick={() => setBindMode("select")}
+                  className={bindMode === "select" ? "bg-brand-500 hover:bg-brand-600 text-white" : "bg-input-background"}
+                >
+                  {t("applications.captures.selectExisting")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={bindMode === "create" ? "default" : "outline"}
+                  onClick={() => setBindMode("create")}
+                  className={bindMode === "create" ? "bg-brand-500 hover:bg-brand-600 text-white" : "bg-input-background"}
+                >
+                  {t("applications.captures.createNew")}
+                </Button>
+              </div>
+
+              {bindMode === "select" ? (
+                services.length === 0 ? (
+                  <p style={{ fontSize: '0.875rem', color: '#94A3B8' }}>
+                    {t("applications.captures.noServices")}
+                  </p>
+                ) : (
+                  <div
+                    role="radiogroup"
+                    aria-label={t("applications.captures.selectExisting")}
+                    className="max-h-64 overflow-y-auto space-y-2"
+                  >
+                    {services.map((svc) => (
+                      <button
+                        key={svc.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={bindServiceId === svc.id}
+                        onClick={() => setBindServiceId(svc.id)}
+                        className={`w-full flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors ${
+                          bindServiceId === svc.id
+                            ? "border-brand-500 bg-brand-500/10"
+                            : "border-border bg-surface-light/20 hover:bg-surface-light/30"
+                        }`}
+                      >
+                        <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{svc.name}</span>
+                        <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>
+                          {svc.teamName ?? t("applications.captures.noTeam")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="bind-service-name">{t("applications.captures.serviceNameLabel")}</Label>
+                  <Input
+                    id="bind-service-name"
+                    value={newServiceName}
+                    onChange={(e) => setNewServiceName(e.target.value)}
+                    className="bg-input-background"
+                  />
+                </div>
+              )}
+
+              {showNoTeamWarning && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-warning-500/10 border border-warning-500/20">
+                  <AlertCircle className="w-4 h-4 text-warning-500 flex-shrink-0 mt-0.5" />
+                  <p style={{ fontSize: '0.8125rem' }} className="text-warning-500">
+                    {t("applications.captures.noTeamWarning")}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={closeBindModal} className="bg-input-background">
+                {t("common.cancel")}
+              </Button>
+              {bindMode === "select" ? (
+                <Button
+                  disabled={!bindServiceId || bindServiceMutation.isPending}
+                  onClick={handleBindExisting}
+                  className="bg-brand-500 hover:bg-brand-600 text-white"
+                >
+                  <Link2 className="w-4 h-4 mr-2" />
+                  {t("applications.captures.bindConfirm")}
+                </Button>
+              ) : (
+                <Button
+                  disabled={!newServiceName.trim() || createServiceMutation.isPending || bindServiceMutation.isPending}
+                  onClick={handleCreateAndBind}
+                  className="bg-brand-500 hover:bg-brand-600 text-white"
+                >
+                  <Link2 className="w-4 h-4 mr-2" />
+                  {t("applications.captures.createAndBind")}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }

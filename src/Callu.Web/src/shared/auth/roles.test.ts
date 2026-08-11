@@ -195,6 +195,7 @@ const ROUTE_CONTROLLERS: ReadonlyArray<{ prefix: string; controller: string }> =
   { prefix: "/settings", controller: "SettingsController.cs" },
   { prefix: "/maintenance", controller: "MaintenanceWindowsController.cs" },
   { prefix: "/diagnostics", controller: "DiagnosticsController.cs" },
+  { prefix: "/applications", controller: "IntegrationsController.cs" },
 ];
 
 describe("the policies the API actually applies", () => {
@@ -230,6 +231,7 @@ describe("canAccessRoute", () => {
       ["/settings", ["Admin"]],
       ["/maintenance", ["Admin"]],
       ["/diagnostics", ["Admin"]],
+      ["/applications", ["Admin", "TeamLead"]],
     ];
 
     for (const [path, allowed] of gated) {

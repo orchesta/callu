@@ -1,4 +1,5 @@
 using FluentValidation;
+using Callu.Domain.Entities;
 using Callu.Shared.Models.Incidents;
 
 namespace Callu.Application.Validators;
@@ -9,10 +10,12 @@ public class CreateIncidentRequestValidator : AbstractValidator<CreateIncidentRe
     {
         RuleFor(x => x.Title)
             .NotEmpty().WithMessage("Incident title is required")
-            .MaximumLength(200).WithMessage("Incident title cannot exceed 200 characters");
+            .MaximumLength(Incident.MaxTitleLength)
+            .WithMessage($"Incident title cannot exceed {Incident.MaxTitleLength} characters");
 
         RuleFor(x => x.Description)
-            .MaximumLength(2000).WithMessage("Description cannot exceed 2000 characters")
+            .MaximumLength(Incident.MaxDescriptionLength)
+            .WithMessage($"Description cannot exceed {Incident.MaxDescriptionLength} characters")
             .When(x => !string.IsNullOrEmpty(x.Description));
 
         RuleFor(x => x.Severity)

@@ -18,4 +18,7 @@ public interface IIntegrationService
 
     /// <summary>Mints a new token and API key, invalidating the previous pair immediately.</summary>
     Task<IntegrationSecretsDto> RotateCredentialsAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Binds the integration to a service, or unbinds it (null) back to capture-only.</summary>
+    Task<IntegrationDto> BindServiceAsync(Guid id, Guid? serviceId, CancellationToken cancellationToken = default);
 }

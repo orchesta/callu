@@ -28,7 +28,7 @@ import { useTeams } from "@/features/teams/hooks/use-teams";
 import { useUsers } from "@/features/users/hooks/use-users";
 import { useEscalationPolicies } from "@/features/escalations/hooks/use-escalations";
 import { useServices } from "@/features/services/hooks/use-services";
-import { useIntegrations } from "../hooks/use-integrations";
+import { useIntegrations } from "@/features/applications/hooks/use-integrations";
 import { AlertRuleEditor } from "./alert-rule-editor";
 import { dateLocale } from "@/shared/utils/datetime";
 

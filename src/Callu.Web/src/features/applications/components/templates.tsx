@@ -21,10 +21,10 @@ import {
   useWebhookTemplates,
   useDeleteWebhookTemplate,
   useTestWebhookTemplate,
-} from "../hooks/use-webhook-templates";
-import type { WebhookTemplateDto } from "../types/webhook-template.types";
+} from "@/features/settings/hooks/use-webhook-templates";
+import type { WebhookTemplateDto } from "@/features/settings/types/webhook-template.types";
 
-export function WebhookTemplatesSettings() {
+export function ApplicationTemplates() {
   const { data: templates, isLoading, error } = useWebhookTemplates();
   const deleteTemplate = useDeleteWebhookTemplate();
   const testTemplate = useTestWebhookTemplate();

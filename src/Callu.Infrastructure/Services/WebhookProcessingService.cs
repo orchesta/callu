@@ -44,6 +44,9 @@ public class WebhookProcessingService(
 
     private const int MaxCapturedBodyChars = 64 * 1024;
 
+    /// <summary>How many over-cap capture rows one request may delete; a larger backlog drains across later requests.</summary>
+    private const int MaxCapTrimRowsPerRequest = 2000;
+
     /// <summary>Window for the title-based duplicate check on incoming open-webhooks.</summary>
     // A constant rather than per-service config: this is only flood mitigation, not the fingerprint-based grouping engine.
     private const int FuzzyDedupeWindowMinutes = 5;
@@ -105,7 +108,7 @@ public class WebhookProcessingService(
 
                 var integration = await integrationRepository.GetByWebhookTokenWithTemplateAsync(token, cancellationToken);
                 if (integration is not null)
-                    return await ProcessForIntegrationAsync(integration, apiKey, body, headers, cancellationToken);
+                    return await ProcessForIntegrationAsync(integration, apiKey, method, contentType, body, headers, sourceIp, cancellationToken);
 
                 return Fail(Messages.Get("webhooks.invalidToken"));
             }, cancellationToken);
@@ -150,6 +153,8 @@ public class WebhookProcessingService(
                 Status = WebhookCaptureStatus.Captured
             };
 
+            await captureRepo.TrimScopeForPendingInsertAsync(
+                service.Id, null, WebhookCapture.MaxPerScope, MaxCapTrimRowsPerRequest, cancellationToken);
             await captureRepo.AddAsync(capture, cancellationToken);
 
             return new WebhookProcessResult
@@ -174,28 +179,67 @@ public class WebhookProcessingService(
     private async Task<WebhookProcessResult> ProcessForIntegrationAsync(
         Integration integration,
         string? apiKey,
+        string method,
+        string? contentType,
         string body,
         IDictionary<string, string> headers,
+        string? sourceIp,
         CancellationToken cancellationToken)
     {
         if (!integration.IsActive || !integration.WebhookEnabled)
             return Fail(Messages.Get("webhooks.disabled"));
 
-        if (!integration.ServiceId.HasValue || integration.Service is null || integration.Service.IsDeleted)
-            return Fail(Messages.Get("webhooks.invalidToken"));
-
-        var auth = Authenticate(apiKey, integration.ApiKey, integration.WebhookSecret, integration.WebhookSignatureHeader, body, headers, integration.ServiceId.Value);
+        var auth = Authenticate(apiKey, integration.ApiKey, integration.WebhookSecret, integration.WebhookSignatureHeader, body, headers, integration.Id);
         if (auth is not null) return auth;
 
         integration.LastWebhookReceivedAt = DateTime.UtcNow;
         integration.WebhooksReceivedCount++;
 
-        var teamId = integration.TeamId ?? integration.Service.TeamId;
+        var boundService = integration.Service is { IsDeleted: false } ? integration.Service : null;
+
+        if (boundService is null && integration.ServiceId.HasValue)
+            logger.LogWarning(
+                "Integration {IntegrationId} points at service {ServiceId}, which no longer exists; its "
+                + "alerts are being captured instead of creating incidents until it is re-bound",
+                integration.Id, integration.ServiceId);
+
+        // An alarm with nowhere to go is stored, never dropped: an unbound endpoint captures even
+        // with listening off, because the sender will not retry a rejection.
+        if (integration.ListeningMode || boundService is null)
+        {
+            var capture = new WebhookCapture
+            {
+                IntegrationId = integration.Id,
+                ServiceId = boundService?.Id,
+                CapturedAt = DateTime.UtcNow,
+                Method = method,
+                ContentType = contentType,
+                SourceIp = sourceIp,
+                Headers = System.Text.Json.JsonSerializer.Serialize(
+                    RedactSensitiveHeaders(headers, integration.WebhookSignatureHeader)),
+                Body = TrimForCapture(body),
+                Status = WebhookCaptureStatus.Captured
+            };
+
+            await captureRepo.TrimScopeForPendingInsertAsync(
+                null, integration.Id, WebhookCapture.MaxPerScope, MaxCapTrimRowsPerRequest, cancellationToken);
+            await captureRepo.AddAsync(capture, cancellationToken);
+
+            return new WebhookProcessResult
+            {
+                Success = true,
+                Message = Messages.Get("webhooks.captured"),
+                CaptureId = capture.Id,
+                WasCaptured = true
+            };
+        }
+
+        var teamId = integration.TeamId ?? boundService.TeamId;
 
         return await ProcessParsedAsync(
             body,
             integration.WebhookTemplate,
-            serviceId: integration.ServiceId.Value,
+            serviceId: boundService.Id,
             teamId: teamId,
             sourceIntegrationId: integration.Id,
             dataLanguage: integration.WebhookTemplate?.DataLanguage,

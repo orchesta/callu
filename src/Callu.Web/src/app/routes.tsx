@@ -25,6 +25,9 @@ const ServicesList = lazy(() => import("@/features/services/components/list").th
 const ServiceDetail = lazy(() => import("@/features/services/components/detail").then(m => ({ default: m.ServiceDetail })));
 const WebhookTemplateEditor = lazy(() => import("@/features/services/components/webhook-template-editor").then(m => ({ default: m.WebhookTemplateEditor })));
 const WebhookCaptures = lazy(() => import("@/features/services/components/webhook-captures").then(m => ({ default: m.WebhookCaptures })));
+const ApplicationsPage = lazy(() => import("@/features/applications/components/index").then(m => ({ default: m.ApplicationsPage })));
+const ApplicationCaptures = lazy(() => import("@/features/applications/components/captures").then(m => ({ default: m.ApplicationCaptures })));
+const ApplicationTemplateEditor = lazy(() => import("@/features/applications/components/template-editor").then(m => ({ default: m.ApplicationTemplateEditor })));
 const EscalationList = lazy(() => import("@/features/escalations/components/list").then(m => ({ default: m.EscalationList })));
 const EscalationDetail = lazy(() => import("@/features/escalations/components/detail").then(m => ({ default: m.EscalationDetail })));
 const SchedulesList = lazy(() => import("@/features/schedules/components/list").then(m => ({ default: m.SchedulesList })));
@@ -198,6 +201,18 @@ export const router = createBrowserRouter([
       {
         path: "services/:id/captures",
         Component: () => <LazyRoute Component={WebhookCaptures} />,
+      },
+      {
+        path: "applications",
+        Component: () => <GuardedLazyRoute Component={ApplicationsPage} permission={PERMISSIONS.ManageWebhooks} />,
+      },
+      {
+        path: "applications/:id/captures",
+        Component: () => <GuardedLazyRoute Component={ApplicationCaptures} permission={PERMISSIONS.ManageWebhooks} />,
+      },
+      {
+        path: "applications/:id/template",
+        Component: () => <GuardedLazyRoute Component={ApplicationTemplateEditor} permission={PERMISSIONS.ManageWebhooks} />,
       },
       {
         path: "escalations",

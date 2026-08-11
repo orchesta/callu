@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t } from "@/shared/locales/i18n";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/shared/components/ui/tabs";
-import { Globe, Key, Mail, Zap, Bell, Webhook, Smartphone, Radio } from "lucide-react";
+import { Globe, Key, Mail, Zap, Bell, Smartphone } from "lucide-react";
 import { LoadingState } from "@/shared/components/loading-state";
 import { PageHeader } from "@/shared/components/page-header";
 import { useOrganizationSettings, useSmtpSettings, useWebhookApiKeys } from "../hooks/use-settings";
@@ -11,8 +11,6 @@ import { EmailSettings } from "./email-settings";
 import { FirebaseSettings } from "./firebase-settings";
 import { AlertRulesSettings } from "./alert-rules";
 import { NotificationChannelsSettings } from "./notification-channels";
-import { WebhookTemplatesSettings } from "./webhook-templates";
-import { InboundWebhooksSettings } from "./inbound-webhooks";
 
 export function SettingsHub() {
   const [activeTab, setActiveTab] = useState("general");
@@ -50,14 +48,6 @@ export function SettingsHub() {
             <Bell className="w-4 h-4 mr-2" />
             {t("settings.tabs.notifications")}
           </TabsTrigger>
-          <TabsTrigger value="webhook-templates">
-            <Webhook className="w-4 h-4 mr-2" />
-            {t("settings.tabs.webhookTemplates")}
-          </TabsTrigger>
-          <TabsTrigger value="inbound-webhooks">
-            <Radio className="w-4 h-4 mr-2" />
-            {t("settings.tabs.inboundWebhooks")}
-          </TabsTrigger>
           <TabsTrigger value="email">
             <Mail className="w-4 h-4 mr-2" />
             {t("settings.tabs.smtp")}
@@ -82,14 +72,6 @@ export function SettingsHub() {
 
         <TabsContent value="notifications" className="space-y-6">
           <NotificationChannelsSettings />
-        </TabsContent>
-
-        <TabsContent value="webhook-templates" className="space-y-6">
-          <WebhookTemplatesSettings />
-        </TabsContent>
-
-        <TabsContent value="inbound-webhooks" className="space-y-6">
-          <InboundWebhooksSettings />
         </TabsContent>
 
         <TabsContent value="email" className="space-y-6">

@@ -1,4 +1,5 @@
 import { useState, useEffect, useId } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSetWebhookTemplate } from "../hooks/use-webhook-settings";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router";
 import { Button } from "@/shared/components/ui/button";
@@ -38,6 +39,7 @@ import {
 } from "@/features/settings/hooks/use-webhook-templates";
 import { useService } from "../hooks/use-services";
 import { useCapture } from "../hooks/use-captures";
+import { useIntegration, useUpdateIntegration, integrationKeys } from "@/features/applications/hooks/use-integrations";
 import { extractFields, resolveJsonPath, type ParsedField } from "../utils/json-payload";
 import { t } from "@/shared/locales/i18n";
 import { useLocaleTick } from "@/shared/hooks/use-locale-tick";
@@ -82,22 +84,33 @@ function incidentSeverityKey(sev: "critical" | "high" | "medium" | "low"): strin
   }
 }
 
-export function WebhookTemplateEditor() {
+interface WebhookTemplateEditorProps {
+  scope?: "service" | "application";
+}
+
+export function WebhookTemplateEditor({ scope = "service" }: WebhookTemplateEditorProps) {
   const formId = useId();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const captureId = searchParams.get("captureId");
   const isEditing = !!id && !captureId;
+  const isApplicationScope = scope === "application";
 
-  const { data: service } = useService(id!);
-  const templateId = isEditing ? (service?.webhookTemplateId ?? "") : "";
+  const { data: service } = useService(isApplicationScope ? "" : id!);
+  const { data: integration } = useIntegration(isApplicationScope ? id : undefined);
+  const templateId = isEditing
+    ? ((isApplicationScope ? integration?.webhookTemplateId : service?.webhookTemplateId) ?? "")
+    : "";
   const { data: existingTemplate } = useWebhookTemplate(templateId);
   const { data: captureData } = useCapture(captureId ?? "");
   const createTemplate = useCreateWebhookTemplate();
   const setServiceTemplate = useSetWebhookTemplate();
+  const updateIntegration = useUpdateIntegration();
   const updateTemplate = useUpdateWebhookTemplate();
   const createFromCapture = useCreateWebhookTemplateFromCapture();
+  const queryClient = useQueryClient();
+  const backPath = isApplicationScope ? "/applications" : `/services/${id}`;
 
   const [templateName, setTemplateName] = useState("");
   const [description, setDescription] = useState("");
@@ -264,7 +277,7 @@ export function WebhookTemplateEditor() {
 
     const successHandler = () => {
       setShowSuccess(true);
-      setTimeout(() => navigate(`/services/${id}`), 1000);
+      setTimeout(() => navigate(backPath), 1000);
     };
 
     if (captureId) {
@@ -278,7 +291,15 @@ export function WebhookTemplateEditor() {
           samplePayload: samplePayload || undefined,
           dataLanguage,
         },
-        { onSuccess: successHandler },
+        {
+          // The backend attaches the new template to the capture's application itself.
+          onSuccess: () => {
+            if (isApplicationScope) {
+              queryClient.invalidateQueries({ queryKey: integrationKeys.all });
+            }
+            successHandler();
+          },
+        },
       );
     } else if (isEditing && templateId) {
       updateTemplate.mutate(
@@ -307,6 +328,25 @@ export function WebhookTemplateEditor() {
           // Creating from a capture attaches the template to the service; writing one by hand has
           // to do the same, or the operator's work sits there unused.
           onSuccess: (created) => {
+            if (isApplicationScope) {
+              if (id && created?.id && integration) {
+                updateIntegration.mutate(
+                  {
+                    id,
+                    name: integration.name,
+                    description: integration.description,
+                    teamId: integration.teamId,
+                    webhookTemplateId: created.id,
+                    isActive: integration.isActive,
+                    webhookEnabled: integration.webhookEnabled,
+                  },
+                  { onSettled: successHandler },
+                );
+                return;
+              }
+              successHandler();
+              return;
+            }
             if (id && created?.id) {
               setServiceTemplate.mutate(
                 { serviceId: id, templateId: created.id },
@@ -368,13 +408,27 @@ export function WebhookTemplateEditor() {
           <Home className="w-4 h-4" />
         </Link>
         <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        <Link to="/services" className="text-muted-foreground hover:text-foreground transition-colors">
-          {t("services.title")}
-        </Link>
-        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        <Link to={`/services/${id}`} className="text-muted-foreground hover:text-foreground transition-colors">
-          {service?.name ?? t("services.breadcrumbServiceFallback")}
-        </Link>
+        {isApplicationScope ? (
+          <>
+            <Link to="/applications" className="text-muted-foreground hover:text-foreground transition-colors">
+              {t("applications.editor.breadcrumbApplications")}
+            </Link>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            <span className="text-muted-foreground">
+              {integration?.name ?? t("applications.editor.breadcrumbApplicationFallback")}
+            </span>
+          </>
+        ) : (
+          <>
+            <Link to="/services" className="text-muted-foreground hover:text-foreground transition-colors">
+              {t("services.title")}
+            </Link>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            <Link to={`/services/${id}`} className="text-muted-foreground hover:text-foreground transition-colors">
+              {service?.name ?? t("services.breadcrumbServiceFallback")}
+            </Link>
+          </>
+        )}
         <ChevronRight className="w-4 h-4 text-muted-foreground" />
         <span className="text-foreground font-medium">{t("webhookTemplate.breadcrumbTemplate")}</span>
       </nav>
@@ -391,7 +445,7 @@ export function WebhookTemplateEditor() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => navigate(`/services/${id}`)}
+            onClick={() => navigate(backPath)}
             className="bg-input-background"
           >
             <X className="w-4 h-4 mr-2" />

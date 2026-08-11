@@ -38,3 +38,11 @@ public record UpdateWebhookTemplateRequest
     public string? DataLanguage { get; init; }
     public bool? IsActive { get; init; }
 }
+
+/// <summary>Runs unsaved mappings through the real parser, so a template can be tried before it exists.</summary>
+public record PreviewWebhookTemplateRequest
+{
+    public string SamplePayload { get; init; } = string.Empty;
+    public string FieldMappings { get; init; } = "{}";
+    public string? StateMapping { get; init; }
+}
