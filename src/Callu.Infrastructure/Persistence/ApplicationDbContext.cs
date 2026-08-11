@@ -295,13 +295,20 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
 
         modelBuilder.Entity<WebhookCapture>(entity =>
         {
-            entity.HasIndex(e => e.ServiceId);
+            entity.HasIndex(e => new { e.ServiceId, e.CapturedAt });
+            entity.HasIndex(e => new { e.IntegrationId, e.CapturedAt });
             entity.HasIndex(e => e.CapturedAt);
             entity.HasIndex(e => e.Status);
 
+            // Cascade is stated on both owners; EF's optional-FK default would orphan captures instead.
             entity.HasOne(e => e.Service)
                 .WithMany(s => s.WebhookCaptures)
                 .HasForeignKey(e => e.ServiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Integration)
+                .WithMany()
+                .HasForeignKey(e => e.IntegrationId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

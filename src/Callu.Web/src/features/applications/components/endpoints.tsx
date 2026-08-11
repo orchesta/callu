@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { t } from "@/shared/locales/i18n";
 import { toast } from "@/shared/utils/toast";
 import { copyText } from "@/shared/utils/clipboard";
@@ -25,6 +26,7 @@ import {
 import {
   Check,
   Copy,
+  Link2,
   Loader2,
   Pencil,
   Plus,
@@ -36,14 +38,17 @@ import { LoadingState } from "@/shared/components/loading-state";
 import { ErrorState } from "@/shared/components/error-state";
 import { EmptyState } from "@/shared/components/empty-state";
 import { DeleteConfirmDialog } from "@/shared/components/delete-confirm-dialog";
+import { useAuth } from "@/shared/auth/auth.context";
+import { hasPermission, PERMISSIONS } from "@/shared/auth/roles";
 import { useServices } from "@/features/services/hooks/use-services";
-import { useWebhookTemplates } from "../hooks/use-webhook-templates";
+import { useWebhookTemplates } from "@/features/settings/hooks/use-webhook-templates";
 import {
   useIntegrations,
   useCreateIntegration,
   useUpdateIntegration,
   useDeleteIntegration,
   useRotateIntegrationCredentials,
+  useBindIntegrationService,
 } from "../hooks/use-integrations";
 import type {
   IntegrationDto,
@@ -56,7 +61,9 @@ function absoluteWebhookUrl(path: string) {
   return `${window.location.origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-export function InboundWebhooksSettings() {
+export function ApplicationEndpoints() {
+  const { user } = useAuth();
+  const canRotate = hasPermission(user?.role, PERMISSIONS.ManageIntegrations);
   const { data: items, isLoading, error } = useIntegrations();
   const { data: services } = useServices();
   const { data: templates } = useWebhookTemplates();
@@ -64,10 +71,13 @@ export function InboundWebhooksSettings() {
   const updateMutation = useUpdateIntegration();
   const deleteMutation = useDeleteIntegration();
   const rotateMutation = useRotateIntegrationCredentials();
+  const bindMutation = useBindIntegrationService();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<IntegrationDto | null>(null);
   const [deleting, setDeleting] = useState<IntegrationDto | null>(null);
+  const [binding, setBinding] = useState<IntegrationDto | null>(null);
+  const [bindServiceId, setBindServiceId] = useState(NONE);
   const [secrets, setSecrets] = useState<IntegrationSecretsDto | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -75,6 +85,7 @@ export function InboundWebhooksSettings() {
   const [description, setDescription] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [templateId, setTemplateId] = useState(NONE);
+  const [listeningMode, setListeningMode] = useState(false);
   const [signatureSecret, setSignatureSecret] = useState("");
   const [signatureHeader, setSignatureHeader] = useState("X-Callu-Signature");
   const [isActive, setIsActive] = useState(true);
@@ -97,6 +108,7 @@ export function InboundWebhooksSettings() {
     setDescription("");
     setServiceId("");
     setTemplateId(NONE);
+    setListeningMode(false);
     setSignatureSecret("");
     setSignatureHeader("X-Callu-Signature");
     setIsActive(true);
@@ -114,6 +126,7 @@ export function InboundWebhooksSettings() {
     setDescription(item.description ?? "");
     setServiceId(item.serviceId ?? "");
     setTemplateId(item.webhookTemplateId ?? NONE);
+    setListeningMode(item.listeningMode);
     setSignatureSecret("");
     setSignatureHeader(item.signatureHeaderName ?? "X-Callu-Signature");
     setIsActive(item.isActive);
@@ -122,14 +135,20 @@ export function InboundWebhooksSettings() {
     setEditing(item);
   };
 
+  const openBind = (item: IntegrationDto) => {
+    setBindServiceId(item.serviceId ?? NONE);
+    setBinding(item);
+  };
+
   const handleCreate = async () => {
-    if (!name.trim() || !serviceId) return;
+    if (!name.trim()) return;
     const result = await createMutation.mutateAsync({
       name: name.trim(),
       type: "Webhook",
       description: description.trim() || undefined,
-      serviceId,
+      serviceId: serviceId && serviceId !== NONE ? serviceId : undefined,
       webhookTemplateId: templateId === NONE ? undefined : templateId,
+      listeningMode,
       webhookSecret: signatureSecret.trim() || undefined,
       webhookSignatureHeader: signatureSecret.trim()
         ? signatureHeader.trim() || undefined
@@ -150,9 +169,11 @@ export function InboundWebhooksSettings() {
       id: editing.id,
       name: name.trim(),
       description: description.trim() || undefined,
+      teamId: editing.teamId ?? undefined,
       webhookTemplateId: templateId === NONE ? undefined : templateId,
       isActive,
       webhookEnabled,
+      listeningMode,
       webhookSecret,
       webhookSignatureHeader: clearSecret
         ? undefined
@@ -160,6 +181,16 @@ export function InboundWebhooksSettings() {
     });
     setEditing(null);
     resetForm();
+  };
+
+  const handleBind = async () => {
+    if (!binding) return;
+    await bindMutation.mutateAsync({
+      id: binding.id,
+      serviceId: bindServiceId === NONE ? null : bindServiceId,
+    });
+    toast.success(t("applications.bindSuccess"));
+    setBinding(null);
   };
 
   const handleRotate = async (item: IntegrationDto) => {
@@ -231,11 +262,16 @@ export function InboundWebhooksSettings() {
                         {t("common.inactive")}
                       </Badge>
                     )}
+                    {item.listeningMode && (
+                      <Badge className="bg-brand-500/10 text-brand-500 border-brand-500/20 border text-xs">
+                        {t("applications.listeningBadge")}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {item.serviceName
                       ? t("inboundWebhooks.feedsService", { service: item.serviceName })
-                      : t("inboundWebhooks.noService")}
+                      : t("applications.unboundCaptureOnly")}
                     {item.webhookTemplateName
                       ? ` · ${item.webhookTemplateName}`
                       : ` · ${t("inboundWebhooks.noTemplate")}`}
@@ -250,6 +286,18 @@ export function InboundWebhooksSettings() {
                       count: item.webhooksReceivedCount,
                     })}
                     {item.maskedApiKey ? ` · ${item.maskedApiKey}` : ""}
+                    {item.capturedCount > 0 && (
+                      <>
+                        {" · "}
+                        {t("applications.capturedCount", { count: item.capturedCount })}{" "}
+                        <Link
+                          to={`/applications/${item.id}/captures`}
+                          className="text-brand-500 hover:underline"
+                        >
+                          {t("applications.viewCaptures")}
+                        </Link>
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -272,21 +320,32 @@ export function InboundWebhooksSettings() {
                     variant="outline"
                     size="sm"
                     className="bg-input-background"
-                    onClick={() => openEdit(item)}
+                    onClick={() => openBind(item)}
                   >
-                    <Pencil className="w-4 h-4 mr-2" />
-                    {t("common.edit")}
+                    <Link2 className="w-4 h-4 mr-2" />
+                    {t("applications.bindService")}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     className="bg-input-background"
-                    onClick={() => void handleRotate(item)}
-                    disabled={rotateMutation.isPending}
+                    onClick={() => openEdit(item)}
                   >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${rotateMutation.isPending ? "animate-spin" : ""}`} />
-                    {t("inboundWebhooks.rotate")}
+                    <Pencil className="w-4 h-4 mr-2" />
+                    {t("common.edit")}
                   </Button>
+                  {canRotate && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-input-background"
+                      onClick={() => void handleRotate(item)}
+                      disabled={rotateMutation.isPending}
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${rotateMutation.isPending ? "animate-spin" : ""}`} />
+                      {t("inboundWebhooks.rotate")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -325,11 +384,18 @@ export function InboundWebhooksSettings() {
               />
             </Field>
             <Field label={t("inboundWebhooks.service")}>
-              <Select value={serviceId || undefined} onValueChange={setServiceId}>
+              <Select
+                value={serviceId || undefined}
+                onValueChange={(value) => {
+                  setServiceId(value);
+                  setListeningMode(value === NONE);
+                }}
+              >
                 <SelectTrigger className="bg-input-background">
                   <SelectValue placeholder={t("inboundWebhooks.servicePlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NONE}>{t("applications.noServiceCaptureOnly")}</SelectItem>
                   {(services ?? []).map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))}
@@ -349,6 +415,13 @@ export function InboundWebhooksSettings() {
                 </SelectContent>
               </Select>
             </Field>
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <p className="text-sm font-semibold">{t("applications.listeningMode")}</p>
+                <p className="text-xs text-muted-foreground">{t("applications.listeningModeHint")}</p>
+              </div>
+              <Switch checked={listeningMode} onCheckedChange={setListeningMode} />
+            </div>
             <Field label={t("inboundWebhooks.signatureSecretOptional")}>
               <Input
                 type="password"
@@ -374,7 +447,7 @@ export function InboundWebhooksSettings() {
             </Button>
             <Button
               onClick={() => void handleCreate()}
-              disabled={!name.trim() || !serviceId || createMutation.isPending}
+              disabled={!name.trim() || createMutation.isPending}
               className="bg-brand-500 hover:bg-brand-600 text-white"
             >
               {createMutation.isPending ? (
@@ -393,7 +466,7 @@ export function InboundWebhooksSettings() {
             <DialogDescription>
               {editing?.serviceName
                 ? t("inboundWebhooks.feedsService", { service: editing.serviceName })
-                : t("inboundWebhooks.noService")}
+                : t("applications.unboundCaptureOnly")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -433,10 +506,17 @@ export function InboundWebhooksSettings() {
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
-                <p className="text-sm font-semibold">{t("inboundWebhooks.listening")}</p>
+                <p className="text-sm font-semibold">{t("applications.enabled")}</p>
                 <p className="text-xs text-muted-foreground">{t("inboundWebhooks.listeningHint")}</p>
               </div>
               <Switch checked={webhookEnabled} onCheckedChange={setWebhookEnabled} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <p className="text-sm font-semibold">{t("applications.listeningMode")}</p>
+                <p className="text-xs text-muted-foreground">{t("applications.listeningModeHint")}</p>
+              </div>
+              <Switch checked={listeningMode} onCheckedChange={setListeningMode} />
             </div>
             <Field label={t("inboundWebhooks.signatureSecretOptional")}>
               <Input
@@ -487,6 +567,45 @@ export function InboundWebhooksSettings() {
               className="bg-brand-500 hover:bg-brand-600 text-white"
             >
               {updateMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : null}
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!binding} onOpenChange={(open) => { if (!open) setBinding(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("applications.bindService")}</DialogTitle>
+            <DialogDescription>{t("applications.bindServiceHint")}</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Field label={t("inboundWebhooks.service")}>
+              <Select value={bindServiceId} onValueChange={setBindServiceId}>
+                <SelectTrigger className="bg-input-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>{t("applications.unbindService")}</SelectItem>
+                  {(services ?? []).map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBinding(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => void handleBind()}
+              disabled={bindMutation.isPending}
+              className="bg-brand-500 hover:bg-brand-600 text-white"
+            >
+              {bindMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : null}
               {t("common.save")}

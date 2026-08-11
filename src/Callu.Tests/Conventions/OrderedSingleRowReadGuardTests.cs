@@ -97,6 +97,8 @@ public class OrderedSingleRowReadGuardTests
         new("IntegrationService.cs", "var entity = await repo.GetQueryable() .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("IntegrationService.cs", "var entity = await repo.GetQueryable() .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("IntegrationService.cs", "… ble() .Include(i => i.Service) .Include(i => i.Team) .Include(i => i.WebhookTemplate) .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("IntegrationService.cs", "… ble() .Include(i => i.Service) .Include(i => i.Team) .Include(i => i.WebhookTemplate) .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey,
+            "UpdateAsync and BindServiceAsync load the row the same way; both are keyed on the primary key."),
         new("IntegrationService.cs", "… ing() .Include(i => i.Service) .Include(i => i.Team) .Include(i => i.WebhookTemplate) .FirstOrDefaultAsync(i => i.Id == id && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("JaegerTracingQueryService.cs", "var root = trace.Spans.FirstOrDefault(span => ParentOf(span) is not { } parent || !ids.Contains(parent))", Verdict.InMemory),
         new("JaegerTracingQueryService.cs", "var root = trace.Spans.FirstOrDefault(span => ParentOf(span) is not { } parent || !ids.Contains(parent)) ?? trace.Spans.OrderBy(span => span.StartTime).First()", Verdict.Ordered),
@@ -251,7 +253,7 @@ public class OrderedSingleRowReadGuardTests
         // not unique, and the acknowledgement it attributes is now recorded in the audit trail, so
         // it reads two rows and declines to name an actor when both match.
         new("VoximplantVoiceCallbackPersistence.cs", "… okens .AsNoTracking() .Where(t => t.CallDataJson.Contains(incidentId.ToString())) .OrderByDescending(t => t.CreatedAt) .FirstOrDefaultAsync(cancellationToken)", Verdict.Ordered),
-        new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookCaptureRepository.cs", "… cancellationToken); return deleted > 0; } var row = await _dbSet.IgnoreQueryFilters() .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookCaptureService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
@@ -271,7 +273,9 @@ public class OrderedSingleRowReadGuardTests
             "Creation rejects a duplicate external id with a read-then-write, so two active incidents can share one; the external system resolving \"the\" incident has to reach the oldest, not an arbitrary row."),
         new("WebhookTemplateRepository.cs", "return await _dbSet .FirstOrDefaultAsync(t => EF.Functions.ILike(t.Name, name) && !t.IsDeleted, cancellationToken)", Verdict.NeedsReview),
         new("WebhookTemplateService.cs", "var capture = await captureRepo.FindSingleAsync(c => c.Id == captureId && !c.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
-        new("WebhookTemplateService.cs", "var service = await serviceRepo.FindSingleAsync(s => s.Id == capture.ServiceId && !s.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookTemplateService.cs", "var integration = await integrationRepo.FindSingleAsync( i => i.Id == integrationId && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookTemplateService.cs", "var integration = await integrationRepo.FindSingleAsync( i => i.Id == attachIntegrationId && !i.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
+        new("WebhookTemplateService.cs", "var service = await serviceRepo.FindSingleAsync(s => s.Id == serviceId && !s.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var template = await templateRepo.FindSingleAsync(t => t.Id == templateId && !t.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var template = await templateRepo.FindSingleAsync(t => t.Id == templateId && !t.IsDeleted, cancellationToken)", Verdict.PrimaryKey),
         new("WebhookTemplateService.cs", "var template = await templateRepo.FindSingleAsync(t => t.Id == templateId && !t.IsDeleted, cancellationToken)", Verdict.PrimaryKey),

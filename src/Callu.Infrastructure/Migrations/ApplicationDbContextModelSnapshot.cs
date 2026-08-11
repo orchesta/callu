@@ -1443,6 +1443,9 @@ namespace Callu.Infrastructure.Migrations
                     b.Property<DateTime?>("LastWebhookReceivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("ListeningMode")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("Mode")
                         .HasColumnType("integer");
 
@@ -3443,6 +3446,9 @@ namespace Callu.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("IntegrationId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
@@ -3457,7 +3463,7 @@ namespace Callu.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
-                    b.Property<Guid>("ServiceId")
+                    b.Property<Guid?>("ServiceId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SourceIp")
@@ -3478,9 +3484,11 @@ namespace Callu.Infrastructure.Migrations
 
                     b.HasIndex("CapturedAt");
 
-                    b.HasIndex("ServiceId");
-
                     b.HasIndex("Status");
+
+                    b.HasIndex("IntegrationId", "CapturedAt");
+
+                    b.HasIndex("ServiceId", "CapturedAt");
 
                     b.ToTable("WebhookCaptures");
                 });
@@ -4425,11 +4433,17 @@ namespace Callu.Infrastructure.Migrations
 
             modelBuilder.Entity("Callu.Domain.Entities.WebhookCapture", b =>
                 {
+                    b.HasOne("Callu.Domain.Entities.Integration", "Integration")
+                        .WithMany()
+                        .HasForeignKey("IntegrationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.HasOne("Callu.Domain.Entities.Service", "Service")
                         .WithMany("WebhookCaptures")
                         .HasForeignKey("ServiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Integration");
 
                     b.Navigation("Service");
                 });

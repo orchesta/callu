@@ -12,7 +12,7 @@ namespace Callu.Api.Controllers;
 [ApiVersion(1)]
 [ApiController]
 [Route("api/v{version:apiVersion}/integrations")]
-[Authorize(Policy = Policies.CanManageIntegrations)]
+[Authorize(Policy = Policies.CanManageWebhooks)]
 public class IntegrationsController(IIntegrationService integrations) : ControllerBase
 {
     [HttpGet]
@@ -53,10 +53,20 @@ public class IntegrationsController(IIntegrationService integrations) : Controll
     }
 
     /// <summary>Mints a new token and API key; previous credentials stop working immediately.</summary>
+    // Killing a live key silences the sender org-wide, so rotation stays with admins.
     [HttpPost("{id:guid}/rotate-credentials")]
+    [Authorize(Policy = Policies.CanManageIntegrations)]
     public async Task<IActionResult> RotateCredentials(Guid id, CancellationToken ct)
     {
         var secrets = await integrations.RotateCredentialsAsync(id, ct);
         return Ok(secrets);
+    }
+
+    /// <summary>Binds the integration to a service; a null serviceId unbinds it back to capture-only.</summary>
+    [HttpPut("{id:guid}/service")]
+    public async Task<IActionResult> BindService(Guid id, [FromBody] BindIntegrationServiceRequest request, CancellationToken ct)
+    {
+        var item = await integrations.BindServiceAsync(id, request.ServiceId, ct);
+        return Ok(item);
     }
 }

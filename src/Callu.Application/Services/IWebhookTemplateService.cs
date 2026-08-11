@@ -41,4 +41,7 @@ public interface IWebhookTemplateService
     /// Test template with sample payload
     /// </summary>
     Task<WebhookTemplateTestResult> TestTemplateAsync(Guid templateId, string samplePayload, CancellationToken cancellationToken = default);
+
+    /// <summary>Runs unsaved mappings through the real parser without persisting anything.</summary>
+    WebhookTemplateTestResult PreviewTemplate(PreviewWebhookTemplateRequest request);
 }

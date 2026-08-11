@@ -98,7 +98,8 @@ public class WebhookProcessingServiceTests : IDisposable
     }
 
     private void ParserReturns(bool success = true, WebhookState state = WebhookState.Open,
-        string? externalId = "ext-1", string? title = "Database down", IncidentSeverity severity = IncidentSeverity.High, string? error = null)
+        string? externalId = "ext-1", string? title = "Database down", IncidentSeverity severity = IncidentSeverity.High, string? error = null,
+        string? description = "details")
     {
         _parser.Parse(Arg.Any<string>(), Arg.Any<WebhookTemplate>()).Returns(new ParsedWebhookPayload
         {
@@ -106,7 +107,7 @@ public class WebhookProcessingServiceTests : IDisposable
             State = state,
             ExternalId = externalId,
             Title = title,
-            Description = "details",
+            Description = description,
             Severity = severity,
             Error = error
         });
@@ -494,16 +495,23 @@ public class WebhookProcessingServiceTests : IDisposable
         string? apiKey = "the-api-key",
         bool enabled = true,
         bool active = true,
-        bool withTemplate = true)
+        bool withTemplate = true,
+        bool listening = false,
+        bool withService = true,
+        bool serviceDeleted = false)
     {
-        var service = new Service
+        Service? service = null;
+        if (withService)
         {
-            Id = Guid.NewGuid(),
-            Name = "Payments API",
-            IsDeleted = false,
-            CreatedAt = DateTime.UtcNow
-        };
-        _ctx.Add(service);
+            service = new Service
+            {
+                Id = Guid.NewGuid(),
+                Name = "Payments API",
+                IsDeleted = serviceDeleted,
+                CreatedAt = DateTime.UtcNow
+            };
+            _ctx.Add(service);
+        }
 
         WebhookTemplate? template = null;
         if (withTemplate)
@@ -527,12 +535,13 @@ public class WebhookProcessingServiceTests : IDisposable
             Id = Guid.NewGuid(),
             Name = "Grafana",
             Type = IntegrationType.Grafana,
-            ServiceId = service.Id,
+            ServiceId = service?.Id,
             Service = service,
             WebhookToken = token,
             ApiKey = apiKey,
             WebhookEnabled = enabled,
             IsActive = active,
+            ListeningMode = listening,
             WebhookTemplateId = template?.Id,
             WebhookTemplate = template,
             IsDeleted = false,
@@ -589,5 +598,107 @@ public class WebhookProcessingServiceTests : IDisposable
         await _incidentService.Received(1).CreateIncidentAsync(
             Arg.Is<CreateIncidentRequest>(r => r.SourceIntegrationId == null && r.ServiceId == svc.Id),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ALongDescriptionIsClippedToTheColumn_NotRejected()
+    {
+        var svc = SeedService();
+        ParserReturns(description: new string('x', Incident.MaxDescriptionLength + 1000));
+
+        var result = await Process(svc.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        await _incidentService.Received(1).CreateIncidentAsync(
+            Arg.Is<CreateIncidentRequest>(r => r.Description!.Length == Incident.MaxDescriptionLength),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ADescriptionWithinTheColumn_IsPassedThroughUnclipped()
+    {
+        var svc = SeedService();
+        ParserReturns(description: new string('x', 3000));
+
+        var result = await Process(svc.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        await _incidentService.Received(1).CreateIncidentAsync(
+            Arg.Is<CreateIncidentRequest>(r => r.Description!.Length == 3000),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnUnboundIntegration_CapturesInsteadOfRejecting_EvenWithListeningOff()
+    {
+        var integration = SeedIntegration(withService: false, listening: false);
+
+        var result = await Process(integration.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        Assert.True(result.WasCaptured);
+        var capture = await _ctx.WebhookCaptures.AsNoTracking().SingleAsync();
+        Assert.Equal(integration.Id, capture.IntegrationId);
+        Assert.Null(capture.ServiceId);
+        await _incidentService.DidNotReceive().CreateIncidentAsync(Arg.Any<CreateIncidentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AListeningIntegration_CapturesAndCreatesNoIncident()
+    {
+        var integration = SeedIntegration(listening: true);
+        ParserReturns();
+
+        var result = await Process(integration.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        Assert.True(result.WasCaptured);
+        var capture = await _ctx.WebhookCaptures.AsNoTracking().SingleAsync();
+        Assert.Equal(integration.Id, capture.IntegrationId);
+        Assert.Equal(integration.ServiceId, capture.ServiceId);
+        await _incidentService.DidNotReceive().CreateIncidentAsync(Arg.Any<CreateIncidentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ADeadServiceIntegration_CapturesInsteadOfRejecting()
+    {
+        var integration = SeedIntegration(serviceDeleted: true);
+        ParserReturns();
+
+        var result = await Process(integration.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        Assert.True(result.WasCaptured);
+        var capture = await _ctx.WebhookCaptures.AsNoTracking().SingleAsync();
+        Assert.Equal(integration.Id, capture.IntegrationId);
+        Assert.Null(capture.ServiceId);
+        await _incidentService.DidNotReceive().CreateIncidentAsync(Arg.Any<CreateIncidentRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ABoundIntegrationWithListeningOff_StillCreatesIncidents()
+    {
+        var integration = SeedIntegration();
+        ParserReturns(externalId: "still-processing");
+
+        var result = await Process(integration.WebhookToken!, "the-api-key");
+
+        Assert.True(result.Success);
+        Assert.False(result.WasCaptured);
+        Assert.Equal(0, await _ctx.WebhookCaptures.CountAsync());
+        await _incidentService.Received(1).CreateIncidentAsync(
+            Arg.Is<CreateIncidentRequest>(r => r.ServiceId == integration.ServiceId && r.SourceIntegrationId == integration.Id),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnUnauthenticatedRequestToAnUnboundIntegration_IsNotCaptured()
+    {
+        var integration = SeedIntegration(withService: false);
+
+        var result = await Process(integration.WebhookToken!, "wrong-key");
+
+        Assert.False(result.Success);
+        Assert.Equal(0, await _ctx.WebhookCaptures.CountAsync());
     }
 }

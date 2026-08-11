@@ -6,6 +6,7 @@ using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
+using Callu.Shared.Exceptions;
 using Callu.Shared.Localization;
 using Callu.Shared.Models.Webhooks;
 
@@ -18,6 +19,7 @@ public class WebhookTemplateService(
     IWebhookTemplateRepository templateRepo,
     IWebhookCaptureRepository captureRepo,
     IServiceRepository serviceRepo,
+    IIntegrationRepository integrationRepo,
     ITransactionManager transactionManager,
     IWebhookPayloadParser payloadParser) : IWebhookTemplateService
 {
@@ -74,6 +76,15 @@ public class WebhookTemplateService(
 
             await templateRepo.AddAsync(template, cancellationToken);
 
+            // Attach in the same transaction, so a template meant for an endpoint cannot end up detached.
+            if (request.AttachToIntegrationId is { } attachIntegrationId)
+            {
+                var integration = await integrationRepo.FindSingleAsync(
+                        i => i.Id == attachIntegrationId && !i.IsDeleted, cancellationToken)
+                    ?? throw new NotFoundException("Integration", attachIntegrationId);
+                integration.WebhookTemplateId = template.Id;
+            }
+
             return template.Adapt<WebhookTemplateDto>();
         }, cancellationToken);
     }
@@ -86,6 +97,10 @@ public class WebhookTemplateService(
             
             if (capture == null)
                 throw new ArgumentException("Capture not found", nameof(captureId));
+
+            // A body cut at the size limit is not parseable JSON; refusing beats a broken sample.
+            if (capture.Body.EndsWith(WebhookCapture.TruncationSuffix, StringComparison.Ordinal))
+                throw new BusinessRuleException(Messages.Get("webhooks.captureTruncated"));
 
             var template = new WebhookTemplate
             {
@@ -105,10 +120,24 @@ public class WebhookTemplateService(
             
             capture.Status = WebhookCaptureStatus.UsedForTemplate;
 
-            var service = await serviceRepo.FindSingleAsync(s => s.Id == capture.ServiceId && !s.IsDeleted, cancellationToken);
-            if (service != null)
+            // A capture taken on an integration attaches the template there — the integration is
+            // what will parse with it. The service attach stays for service-token captures.
+            if (capture.IntegrationId is { } integrationId)
             {
-                service.WebhookTemplateId = template.Id;
+                var integration = await integrationRepo.FindSingleAsync(
+                    i => i.Id == integrationId && !i.IsDeleted, cancellationToken);
+                if (integration != null)
+                {
+                    integration.WebhookTemplateId = template.Id;
+                }
+            }
+            else if (capture.ServiceId is { } serviceId)
+            {
+                var service = await serviceRepo.FindSingleAsync(s => s.Id == serviceId && !s.IsDeleted, cancellationToken);
+                if (service != null)
+                {
+                    service.WebhookTemplateId = template.Id;
+                }
             }
 
             return template.Adapt<WebhookTemplateDto>();
@@ -167,6 +196,9 @@ public class WebhookTemplateService(
             };
         }
 
+        if (WasTruncated(samplePayload))
+            return TruncatedResult();
+
         var validationResult = payloadParser.Validate(samplePayload, template);
 
         return new WebhookTemplateTestResult
@@ -176,4 +208,37 @@ public class WebhookTemplateService(
             MappedFields = validationResult.ExtractedFields
         };
     }
+
+    public WebhookTemplateTestResult PreviewTemplate(PreviewWebhookTemplateRequest request)
+    {
+        if (WasTruncated(request.SamplePayload))
+            return TruncatedResult();
+
+        // The throwaway template goes through the same parser as live ingest, so the preview
+        // cannot disagree with what a real delivery would do.
+        var template = new WebhookTemplate
+        {
+            Name = "preview",
+            FieldMappings = request.FieldMappings,
+            StateMapping = request.StateMapping,
+        };
+
+        var validationResult = payloadParser.Validate(request.SamplePayload, template);
+
+        return new WebhookTemplateTestResult
+        {
+            Success = validationResult.IsValid,
+            ErrorMessage = validationResult.IsValid ? null : string.Join("; ", validationResult.Errors),
+            MappedFields = validationResult.ExtractedFields
+        };
+    }
+
+    private static bool WasTruncated(string payload) =>
+        payload.EndsWith(WebhookCapture.TruncationSuffix, StringComparison.Ordinal);
+
+    private static WebhookTemplateTestResult TruncatedResult() => new()
+    {
+        Success = false,
+        ErrorMessage = Messages.Get("webhooks.captureTruncated")
+    };
 }

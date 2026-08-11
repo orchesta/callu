@@ -4,6 +4,7 @@ import type {
     IntegrationSecretsDto,
     CreateIntegrationRequest,
     UpdateIntegrationRequest,
+    BindIntegrationServiceRequest,
 } from '../types/integrations.types';
 
 const BASE = '/api/v1/integrations';
@@ -28,4 +29,10 @@ export const integrationsApi = {
 
     rotateCredentials: (id: string) =>
         apiClient.post<IntegrationSecretsDto>(`${BASE}/${id}/rotate-credentials`),
+
+    bindService: (id: string, serviceId: string | null) =>
+        apiClient.put<IntegrationDto>(
+            `${BASE}/${id}/service`,
+            { serviceId } satisfies BindIntegrationServiceRequest,
+        ),
 };

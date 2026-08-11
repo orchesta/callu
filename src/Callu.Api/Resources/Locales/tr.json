@@ -104,6 +104,7 @@
     "incidentCreated": "Olay oluşturuldu",
     "processFailed": "Webhook işlenemedi",
     "templateNotFound": "Şablon bulunamadı",
+    "captureTruncated": "Bu yakalanan istek boyut sınırında kesildi; içeriği eksik olduğundan ayrıştırılamaz. Daha küçük bir yakalama seçin.",
     "invalidPayload": "Geçersiz veri veya şablon",
     "noTitle": "Veriden başlık çıkarılamadı",
     "processingFailed": "Webhook işlenemedi",

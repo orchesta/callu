@@ -66,5 +66,13 @@ public class WebhookTemplatesController(IWebhookTemplateService templateService)
         var result = await templateService.TestTemplateAsync(id, request.SamplePayload, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>Tries unsaved mappings against a sample payload using the same parser live ingest runs.</summary>
+    [HttpPost("preview")]
+    public IActionResult Preview([FromBody] PreviewWebhookTemplateRequest request)
+    {
+        var result = templateService.PreviewTemplate(request);
+        return Ok(result);
+    }
 }
 

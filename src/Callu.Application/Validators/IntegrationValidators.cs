@@ -25,7 +25,8 @@ public class CreateIntegrationRequestValidator : AbstractValidator<CreateIntegra
             .WithMessage("Invalid integration type");
 
         RuleFor(x => x.ServiceId)
-            .NotEqual(Guid.Empty).WithMessage("A service is required");
+            .NotEqual(Guid.Empty).WithMessage("Invalid service ID")
+            .When(x => x.ServiceId.HasValue);
 
         RuleFor(x => x.TeamId)
             .NotEqual(Guid.Empty).WithMessage("Invalid team ID")
@@ -44,6 +45,16 @@ public class CreateIntegrationRequestValidator : AbstractValidator<CreateIntegra
         RuleFor(x => x.WebhookSignatureHeader)
             .NotEmpty().WithMessage("A signature header name is required when a secret is set")
             .When(x => !string.IsNullOrEmpty(x.WebhookSecret));
+    }
+}
+
+public class BindIntegrationServiceRequestValidator : AbstractValidator<BindIntegrationServiceRequest>
+{
+    public BindIntegrationServiceRequestValidator()
+    {
+        RuleFor(x => x.ServiceId)
+            .NotEqual(Guid.Empty).WithMessage("Invalid service ID")
+            .When(x => x.ServiceId.HasValue);
     }
 }
 

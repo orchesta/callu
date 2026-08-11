@@ -132,6 +132,7 @@ public class ValidatorColumnParityGuardTests
         new("ResetPasswordRequest", null, Identity),
         new("UpdateProfileRequest", null, Identity),
 
+        new("BindIntegrationServiceRequest", null, Command + " Carries only a target service id; nothing it holds becomes a column value."),
         new("EscalateRequest", null, Command + " The reason does reach IncidentTimelineEvent.Description, which is a bounded column."),
         new("ReassignRequest", null, Command),
         new("ReorderStepsRequest", null, Command),
@@ -149,6 +150,7 @@ public class ValidatorColumnParityGuardTests
         new("TestEmailRequest", null, ProviderPayload),
         new("TestSmsRequest", null, ProviderPayload),
         new("TestPayloadRequest", null, ProviderPayload),
+        new("PreviewWebhookTemplateRequest", null, Command + " Sample payload and mappings are parsed and discarded; nothing is persisted."),
         new("TTSRequest", null, ProviderPayload),
         new("CreateVoxApplicationRequest", null, ProviderPayload),
         new("CreateVoxRuleRequest", null, ProviderPayload),
@@ -218,6 +220,14 @@ public class ValidatorColumnParityGuardTests
         var annotation = property.GetCustomAttribute<StringLengthAttribute>()?.MaximumLength
                          ?? property.GetCustomAttribute<MaxLengthAttribute>()?.Length;
         if (annotation is > 0) bounds.Add(annotation.Value);
+
+        // Records carry the annotation on the constructor parameter — the place MVC reads it from.
+        var parameter = owner.GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .FirstOrDefault(p => string.Equals(p.Name, property.Name, StringComparison.OrdinalIgnoreCase));
+        var parameterAnnotation = parameter?.GetCustomAttribute<StringLengthAttribute>()?.MaximumLength
+                                  ?? parameter?.GetCustomAttribute<MaxLengthAttribute>()?.Length;
+        if (parameterAnnotation is > 0) bounds.Add(parameterAnnotation.Value);
 
         if (Validators.Value.TryGetValue(owner, out var validator))
             bounds.AddRange(validator.CreateDescriptor()
@@ -403,6 +413,9 @@ public class ValidatorColumnParityGuardTests
         new("TTSRequest", "VoiceId", NotPersisted),
         new("TestEmailRequest", "RecipientEmail", NotPersisted),
         new("TestNotificationRequest", "Message", NotPersisted),
+        new("PreviewWebhookTemplateRequest", "FieldMappings", NotPersisted),
+        new("PreviewWebhookTemplateRequest", "SamplePayload", NotPersisted),
+        new("PreviewWebhookTemplateRequest", "StateMapping", NotPersisted),
         new("TestPayloadRequest", "SamplePayload", NotPersisted),
         new("TestSmsRequest", "Message", NotPersisted),
         new("TestSmsRequest", "To", NotPersisted),

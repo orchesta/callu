@@ -9,4 +9,4 @@ public record InitialSetupRequest(
     string? Name = null,
     string? DefaultTimezone = null,
     // Public address this install is reached at; the request host is used when omitted.
-    [property: StringLength(OrganizationSettings.MaxBaseUrlLength)] string? BaseUrl = null);
+    [StringLength(OrganizationSettings.MaxBaseUrlLength)] string? BaseUrl = null);

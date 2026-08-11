@@ -5,7 +5,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiQueryOptions, useApiMutation } from '@/shared/api';
 import { webhookTemplateApi } from '../api/webhook-templates.api';
-import type { CreateWebhookTemplateRequest, UpdateWebhookTemplateRequest } from '../types/webhook-template.types';
+import type {
+    CreateWebhookTemplateRequest,
+    PreviewWebhookTemplateRequest,
+    UpdateWebhookTemplateRequest,
+} from '../types/webhook-template.types';
 
 export const webhookTemplateKeys = {
     all: ['webhook-templates'] as const,
@@ -84,6 +88,14 @@ export function useTestWebhookTemplate() {
     return useApiMutation(
         ({ id, samplePayload }: { id: string; samplePayload: string }) =>
             webhookTemplateApi.test(id, samplePayload),
+        { successMessage: false },
+    );
+}
+
+/** Dry-runs unsaved mappings through the real parser, before any template exists. */
+export function usePreviewWebhookTemplate() {
+    return useApiMutation(
+        (data: PreviewWebhookTemplateRequest) => webhookTemplateApi.preview(data),
         { successMessage: false },
     );
 }

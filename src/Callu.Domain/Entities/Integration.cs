@@ -120,6 +120,11 @@ public class Integration : BaseEntity
     public bool WebhookEnabled { get; set; } = true;
 
     /// <summary>
+    /// Listening/Capture mode - requests are logged but no incidents created
+    /// </summary>
+    public bool ListeningMode { get; set; } = false;
+
+    /// <summary>
     /// Unique token for the inbound webhook URL (/api/v1/webhooks/{token})
     /// </summary>
     [StringLength(MaxWebhookTokenLength)]

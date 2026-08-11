@@ -148,4 +148,4 @@ public record AddIncidentUpdateRequest
 /// <summary>
 /// Request to subscribe to status page notifications
 /// </summary>
-public record SubscribeRequest([property: Required, EmailAddress, StringLength(320)] string Email);
+public record SubscribeRequest([Required, EmailAddress, StringLength(320)] string Email);
