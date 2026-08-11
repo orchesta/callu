@@ -8,6 +8,7 @@ using Callu.Shared.Models.AlertRules;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -101,7 +102,7 @@ public class AlertRuleEngine(
                 logger.LogWarning(ex,
                     "Alert rule {RuleId} ('{RuleName}') has unreadable actions; it cannot be read as a "
                     + "paging suppression, so incident {IncidentId} pages as normal",
-                    rule.Id, rule.Name, incident.Id);
+                    rule.Id, LogSafe.OneLine(rule.Name), incident.Id);
                 continue;
             }
 
@@ -128,7 +129,7 @@ public class AlertRuleEngine(
             logger.LogError(ex,
                 "Alert rule {RuleId} ('{RuleName}') has unreadable conditions, so it matches nothing and "
                 + "will never fire against incident {IncidentId} — fix or disable the rule",
-                rule.Id, rule.Name, incident.Id);
+                rule.Id, LogSafe.OneLine(rule.Name), incident.Id);
             return false;
         }
 
@@ -195,7 +196,7 @@ public class AlertRuleEngine(
             logger.LogError(ex,
                 "Alert rule {RuleId} ('{RuleName}') matched incident {IncidentId} but its actions are "
                 + "unreadable, so none of them ran",
-                rule.Id, rule.Name, incident.Id);
+                rule.Id, LogSafe.OneLine(rule.Name), incident.Id);
             return;
         }
 

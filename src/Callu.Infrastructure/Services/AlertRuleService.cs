@@ -5,6 +5,7 @@ using Callu.Domain.Entities;
 using Callu.Shared.Models.AlertRules;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -130,7 +131,7 @@ public class AlertRuleService(
             logger.LogWarning(ex,
                 "Alert rule {RuleId} ('{RuleName}') has unreadable conditions; it is listed with none, "
                 + "and it will not match any incident until they are fixed",
-                rule.Id, rule.Name);
+                rule.Id, LogSafe.OneLine(rule.Name));
         }
 
         try
@@ -142,7 +143,7 @@ public class AlertRuleService(
             logger.LogWarning(ex,
                 "Alert rule {RuleId} ('{RuleName}') has unreadable actions; it is listed with none, "
                 + "and nothing will run when it matches",
-                rule.Id, rule.Name);
+                rule.Id, LogSafe.OneLine(rule.Name));
         }
 
         return new AlertRuleDto
