@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Callu.Shared.Logging;
 
 namespace Callu.Api.Controllers;
 
@@ -42,7 +43,7 @@ public class CalluVoiceCallbackController(
             logger.LogWarning(
                 "callu-voice callback '{Status}' rejected: the callback URL carries no token this installation "
                 + "sealed, or it has expired. Nothing was acknowledged.",
-                callback.Status);
+                LogSafe.OneLine(callback.Status));
             return Unauthorized(new { error = Rejected });
         }
 
@@ -54,7 +55,7 @@ public class CalluVoiceCallbackController(
             logger.LogWarning(
                 "callu-voice callback rejected: the body reports call {Claimed}, but the token in the URL was minted "
                 + "for a different call on incident {IncidentId}.",
-                callback.CallId, ticket.IncidentId);
+                LogSafe.OneLine(callback.CallId), ticket.IncidentId);
             return Unauthorized(new { error = Rejected });
         }
 
@@ -68,7 +69,7 @@ public class CalluVoiceCallbackController(
             // A 500 is retried by callu-voice, which is what a transient database failure needs.
             logger.LogError(ex,
                 "Failed to apply the callu-voice callback '{Status}' for incident {IncidentId}",
-                callback.Status, ticket.IncidentId);
+                LogSafe.OneLine(callback.Status), ticket.IncidentId);
             return StatusCode(StatusCodes.Status500InternalServerError,
                 new { error = "The call status could not be recorded." });
         }

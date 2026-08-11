@@ -10,6 +10,7 @@ using Callu.Shared.Models.Communication;
 using Callu.Shared.Models.Conference;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -230,16 +231,16 @@ public class VideoConferenceService(
                     {
                         reached = true;
                         logger.LogInformation("Conference SMS sent to {Phone} for room {RoomId}",
-                            participant.PhoneNumber, room.Id);
+                            PiiRedactor.Phone(participant.PhoneNumber), room.Id);
                     }
                     else
                         // The provider accepted the request but rejected the send (bad sender id, auth, balance, …).
                         logger.LogError("Conference SMS to {Phone} for room {RoomId} was rejected by the SMS provider: {Error}",
-                            participant.PhoneNumber, room.Id, smsResult.ErrorMessage);
+                            PiiRedactor.Phone(participant.PhoneNumber), room.Id, smsResult.ErrorMessage);
                 }
                 catch (HttpRequestException ex)
                 {
-                    logger.LogError(ex, "Failed to send conference SMS to {Phone}", participant.PhoneNumber);
+                    logger.LogError(ex, "Failed to send conference SMS to {Phone}", PiiRedactor.Phone(participant.PhoneNumber));
                 }
             }
 
@@ -254,15 +255,15 @@ public class VideoConferenceService(
                     if (sent)
                     {
                         reached = true;
-                        logger.LogInformation("Conference email sent to {Email} for room {RoomId}", email, room.Id);
+                        logger.LogInformation("Conference email sent to {Email} for room {RoomId}", PiiRedactor.Email(email), room.Id);
                     }
                     else
                         logger.LogWarning("Conference email to {Email} for room {RoomId} was not sent (email service returned false).",
-                            email, room.Id);
+                            PiiRedactor.Email(email), room.Id);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    logger.LogError(ex, "Failed to send conference email to {Email}", email);
+                    logger.LogError(ex, "Failed to send conference email to {Email}", PiiRedactor.Email(email));
                 }
             }
 

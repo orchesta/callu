@@ -10,6 +10,7 @@ using Callu.Domain.Entities;
 using Callu.Infrastructure.Email;
 using Callu.Shared.Localization;
 using Callu.Shared.Models.Settings;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -202,7 +203,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Test email sent to {recipientEmail}";
                 settings.IsConfigured = true;
 
-                _logger.LogInformation("Test email sent successfully to {Recipient}", recipientEmail);
+                _logger.LogInformation("Test email sent successfully to {Recipient}", PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = true,
@@ -215,7 +216,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Failed to send: {ex.Message}";
                 settings.IsConfigured = false;
 
-                _logger.LogError(ex, "Failed to send test email to {Recipient}", recipientEmail);
+                _logger.LogError(ex, "Failed to send test email to {Recipient}", PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = false,
@@ -228,7 +229,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Failed to send: {ex.Message}";
                 settings.IsConfigured = false;
 
-                _logger.LogError(ex, "Failed to send test email to {Recipient}", recipientEmail);
+                _logger.LogError(ex, "Failed to send test email to {Recipient}", PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = false,
@@ -319,7 +320,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Test email ({templateType}) sent to {recipientEmail}";
                 settings.IsConfigured = true;
 
-                _logger.LogInformation("Test email ({TemplateType}) sent successfully to {Recipient}", templateType, recipientEmail);
+                _logger.LogInformation("Test email ({TemplateType}) sent successfully to {Recipient}", templateType, PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = true,
@@ -332,7 +333,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Failed to send: {ex.Message}";
                 settings.IsConfigured = false;
 
-                _logger.LogError(ex, "Failed to send test email ({TemplateType}) to {Recipient}", templateType, recipientEmail);
+                _logger.LogError(ex, "Failed to send test email ({TemplateType}) to {Recipient}", templateType, PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = false,
@@ -345,7 +346,7 @@ public class SmtpSettingsService : ISmtpSettingsService
                 settings.LastTestResult = $"Failed to send: {ex.Message}";
                 settings.IsConfigured = false;
 
-                _logger.LogError(ex, "Failed to send test email ({TemplateType}) to {Recipient}", templateType, recipientEmail);
+                _logger.LogError(ex, "Failed to send test email ({TemplateType}) to {Recipient}", templateType, PiiRedactor.Email(recipientEmail));
                 return new EmailTestResult
                 {
                     Success = false,

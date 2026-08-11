@@ -3,6 +3,7 @@ using Callu.Domain.Entities;
 using Callu.Domain.Enums;
 using Callu.Infrastructure.Services.Models;
 using Callu.Infrastructure.Utilities;
+using Microsoft.Extensions.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -23,7 +24,7 @@ public interface IWebhookPayloadParser
     TemplateValidationResult Validate(string samplePayload, WebhookTemplate template);
 }
 
-public class WebhookPayloadParser : IWebhookPayloadParser
+public class WebhookPayloadParser(ILogger<WebhookPayloadParser> logger) : IWebhookPayloadParser
 {
     public ParsedWebhookPayload Parse(string payload, WebhookTemplate template)
     {
@@ -132,8 +133,12 @@ public class WebhookPayloadParser : IWebhookPayloadParser
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogWarning(ex,
+                    "Webhook template '{TemplateName}' has an unreadable state mapping, so its severity "
+                    + "mappings were skipped and '{SeverityValue}' fell back to the built-in table",
+                    template.Name, severityValue);
             }
         }
 
@@ -173,8 +178,12 @@ public class WebhookPayloadParser : IWebhookPayloadParser
 
             return WebhookState.Open;
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex,
+                "Webhook template '{TemplateName}' has an unreadable state mapping, so this delivery is "
+                + "treated as open; a resolved alert arriving this way will not close its incident",
+                template.Name);
             return WebhookState.Open;
         }
     }

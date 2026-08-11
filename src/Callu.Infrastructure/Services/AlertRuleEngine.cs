@@ -95,9 +95,14 @@ public class AlertRuleEngine(
             {
                 actions = JsonSerializer.Deserialize<List<AlertRuleActionDto>>(rule.ActionsJson, JsonOptions) ?? [];
             }
-            catch
+            catch (Exception ex)
             {
-                continue; // fail-open per rule: a broken rule must never suppress a page
+                // fail-open per rule: a broken rule must never suppress a page
+                logger.LogWarning(ex,
+                    "Alert rule {RuleId} ('{RuleName}') has unreadable actions; it cannot be read as a "
+                    + "paging suppression, so incident {IncidentId} pages as normal",
+                    rule.Id, rule.Name, incident.Id);
+                continue;
             }
 
             if (actions.Any(a =>
@@ -118,8 +123,12 @@ public class AlertRuleEngine(
         {
             conditions = JsonSerializer.Deserialize<List<AlertRuleConditionDto>>(rule.ConditionsJson, JsonOptions) ?? [];
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex,
+                "Alert rule {RuleId} ('{RuleName}') has unreadable conditions, so it matches nothing and "
+                + "will never fire against incident {IncidentId} — fix or disable the rule",
+                rule.Id, rule.Name, incident.Id);
             return false;
         }
 
@@ -181,8 +190,12 @@ public class AlertRuleEngine(
         {
             actions = JsonSerializer.Deserialize<List<AlertRuleActionDto>>(rule.ActionsJson, JsonOptions) ?? [];
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex,
+                "Alert rule {RuleId} ('{RuleName}') matched incident {IncidentId} but its actions are "
+                + "unreadable, so none of them ran",
+                rule.Id, rule.Name, incident.Id);
             return;
         }
 

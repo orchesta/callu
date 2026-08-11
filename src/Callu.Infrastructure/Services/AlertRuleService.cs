@@ -116,7 +116,7 @@ public class AlertRuleService(
         return true;
     }
 
-    private static AlertRuleDto MapToDto(AlertRule rule)
+    private AlertRuleDto MapToDto(AlertRule rule)
     {
         var conditions = new List<AlertRuleConditionDto>();
         var actions = new List<AlertRuleActionDto>();
@@ -125,13 +125,25 @@ public class AlertRuleService(
         {
             conditions = JsonSerializer.Deserialize<List<AlertRuleConditionDto>>(rule.ConditionsJson, JsonOptions) ?? [];
         }
-        catch { }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Alert rule {RuleId} ('{RuleName}') has unreadable conditions; it is listed with none, "
+                + "and it will not match any incident until they are fixed",
+                rule.Id, rule.Name);
+        }
 
         try
         {
             actions = JsonSerializer.Deserialize<List<AlertRuleActionDto>>(rule.ActionsJson, JsonOptions) ?? [];
         }
-        catch { }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Alert rule {RuleId} ('{RuleName}') has unreadable actions; it is listed with none, "
+                + "and nothing will run when it matches",
+                rule.Id, rule.Name);
+        }
 
         return new AlertRuleDto
         {

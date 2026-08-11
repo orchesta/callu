@@ -9,6 +9,7 @@ using Callu.Shared.Models.Communication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Persistence.Voximplant;
 
@@ -26,7 +27,7 @@ public class VoximplantVoiceCallbackPersistence(
         CancellationToken cancellationToken = default)
     {
         VoximplantCallDataServiceLog.VoxEngineCallback(logger,
-            callback.IncidentId, callback.Status, callback.Duration);
+            LogSafe.OneLine(callback.IncidentId), LogSafe.OneLine(callback.Status), callback.Duration);
 
         var callStatus = MapVoxStatus(callback.Status);
 
@@ -94,7 +95,7 @@ public class VoximplantVoiceCallbackPersistence(
         {
             logger.LogDebug(
                 "Conference lifecycle callback '{Status}' for incident {IncidentId} — no call log written.",
-                callback.Status, incidentId);
+                LogSafe.OneLine(callback.Status), incidentId);
             return VoxCallbackResult.None;
         }
 
@@ -139,7 +140,7 @@ public class VoximplantVoiceCallbackPersistence(
             {
                 logger.LogInformation(
                     "Voximplant callback '{Status}' for incident {IncidentId} already applied to call session {Session} — treating as a retry.",
-                    callback.Status, incidentId, sessionId);
+                    LogSafe.OneLine(callback.Status), incidentId, LogSafe.OneLine(sessionId));
 
                 if (requestedEscalation)
                     // The earlier delivery ran the escalation, but whether it paged anybody is not
@@ -159,7 +160,7 @@ public class VoximplantVoiceCallbackPersistence(
             {
                 logger.LogInformation(
                     "Voximplant callback '{Status}' for incident {IncidentId} arrived after call session {Session} had already ended — ignored.",
-                    callback.Status, incidentId, sessionId);
+                    LogSafe.OneLine(callback.Status), incidentId, LogSafe.OneLine(sessionId));
                 return VoxCallbackResult.None;
             }
 
@@ -263,7 +264,7 @@ public class VoximplantVoiceCallbackPersistence(
             {
                 logger.LogWarning(
                     "Phone {Phone} matches more than one user; the keypress is recorded without an actor id",
-                    callLog.PhoneNumber);
+                    PiiRedactor.Phone(callLog.PhoneNumber));
             }
         }
 
@@ -425,7 +426,7 @@ public class VoximplantVoiceCallbackPersistence(
                 else
                 {
                     callLog.StandDownRetryChain();
-                    VoximplantCallDataServiceLog.MaxRetryAttemptsReached(logger, callLog.IncidentId, callLog.PhoneNumber);
+                    VoximplantCallDataServiceLog.MaxRetryAttemptsReached(logger, callLog.IncidentId, LogSafe.OneLine(callLog.PhoneNumber));
                 }
                 break;
 

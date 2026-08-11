@@ -133,6 +133,9 @@ public static class UrlSanitizer
             }
             catch
             {
+                // A host shaped like four dotted digit groups that will not parse is not a hostname
+                // anyone reaches on purpose, so treat it as blocked rather than letting it through.
+                return true;
             }
         }
 

@@ -181,15 +181,19 @@ public class TtsTemplateService(
     /// <inheritdoc/>
     public Dictionary<string, string> GetDefaultsForLanguage(string languageCode) => TtsDefaults.GetDefaults(languageCode);
 
-    private static TtsTemplateDto MapToDto(TtsMessageTemplate entity)
+    private TtsTemplateDto MapToDto(TtsMessageTemplate entity)
     {
         Dictionary<string, string> messages;
         try
         {
             messages = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.MessagesJson) ?? new();
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex,
+                "Spoken template {TemplateId} ({LanguageCode}) has unreadable messages; it is listed as empty "
+                + "and a call in that language falls back to the built-in wording",
+                entity.Id, entity.LanguageCode);
             messages = new();
         }
 

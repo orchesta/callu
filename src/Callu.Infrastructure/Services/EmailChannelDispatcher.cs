@@ -6,6 +6,7 @@ using Callu.Application.Services;
 using Callu.Domain.Enums;
 using Callu.Infrastructure.Telemetry;
 using Callu.Shared.Models.Notifications;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -102,7 +103,7 @@ public class EmailChannelDispatcher(
         if (sent)
         {
             notification.MarkDelivered();
-            logger.LogInformation("[RETRY] Email sent to {Email} on attempt {Attempt}", contact.Email, notification.RetryCount);
+            logger.LogInformation("[RETRY] Email sent to {Email} on attempt {Attempt}", PiiRedactor.Email(contact.Email), notification.RetryCount);
         }
         else
         {

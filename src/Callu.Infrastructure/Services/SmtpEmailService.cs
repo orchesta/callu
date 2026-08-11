@@ -6,6 +6,7 @@ using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Infrastructure.Email;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Services;
 
@@ -55,7 +56,7 @@ public class SmtpEmailService : IEmailService
         var orgSettings = await _organizationSettingsService.GetSettingsAsync(cancellationToken);
         if (orgSettings is { EmailNotificationsEnabled: false })
         {
-            _logger.LogInformation("Email notifications disabled by org setting; suppressing send to {Recipient} ({Subject})", to, subject);
+            _logger.LogInformation("Email notifications disabled by org setting; suppressing send to {Recipient} ({Subject})", PiiRedactor.Email(to), subject);
             return false;
         }
 
@@ -63,7 +64,7 @@ public class SmtpEmailService : IEmailService
 
         if (settings == null || !settings.IsConfigured)
         {
-            _logger.LogWarning("SMTP is not configured. Cannot send email to {Recipient}", to);
+            _logger.LogWarning("SMTP is not configured. Cannot send email to {Recipient}", PiiRedactor.Email(to));
             return false;
         }
 
@@ -95,17 +96,17 @@ public class SmtpEmailService : IEmailService
             sendCts.CancelAfter(SendTimeout);
 
             await client.SendMailAsync(message, sendCts.Token);
-            _logger.LogInformation("Email sent successfully to {Recipient}", to);
+            _logger.LogInformation("Email sent successfully to {Recipient}", PiiRedactor.Email(to));
             return true;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError("Sending email to {Recipient} timed out after {Seconds}s", to, SendTimeout.TotalSeconds);
+            _logger.LogError("Sending email to {Recipient} timed out after {Seconds}s", PiiRedactor.Email(to), SendTimeout.TotalSeconds);
             return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Failed to send email to {Recipient}", to);
+            _logger.LogError(ex, "Failed to send email to {Recipient}", PiiRedactor.Email(to));
             return false;
         }
     }

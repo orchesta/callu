@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Quartz;
+using Callu.Shared.Logging;
 
 namespace Callu.Infrastructure.Quartz;
 
@@ -98,7 +99,7 @@ public sealed class VoiceCallRetryQuartzJob(
                 {
                     logger.LogInformation(
                         "VoiceCallRetry: incident {IncidentId} is {Status}; the pending retry to {Phone} stands down",
-                        callLog.IncidentId, status?.ToString() ?? "gone", callLog.PhoneNumber);
+                        callLog.IncidentId, status?.ToString() ?? "gone", PiiRedactor.Phone(callLog.PhoneNumber));
                     await DisarmAsync(db, callLog, ct);
                     continue;
                 }
@@ -108,7 +109,7 @@ public sealed class VoiceCallRetryQuartzJob(
                     logger.LogInformation(
                         "VoiceCallRetry: a call is already on record under the id this retry would dial for incident "
                         + "{IncidentId} ({Phone}); that call owns the chain, so this retry stands down",
-                        callLog.IncidentId, callLog.PhoneNumber);
+                        callLog.IncidentId, PiiRedactor.Phone(callLog.PhoneNumber));
                     await DisarmAsync(db, callLog, ct);
                     continue;
                 }
@@ -125,7 +126,7 @@ public sealed class VoiceCallRetryQuartzJob(
                 {
                     logger.LogWarning(
                         "VoiceCallRetry: max retry attempts ({Max}) reached for incident {IncidentId} ({Phone}); chain stopped",
-                        MaxRetryAttempts, callLog.IncidentId, callLog.PhoneNumber);
+                        MaxRetryAttempts, callLog.IncidentId, PiiRedactor.Phone(callLog.PhoneNumber));
                     await DisarmAsync(db, callLog, ct);
                     continue;
                 }
@@ -135,7 +136,7 @@ public sealed class VoiceCallRetryQuartzJob(
                     logger.LogInformation(
                         "VoiceCallRetry: a call to {Phone} for incident {IncidentId} already started after this row was armed; "
                         + "that call owns the chain, so this retry stands down",
-                        callLog.PhoneNumber, callLog.IncidentId);
+                        PiiRedactor.Phone(callLog.PhoneNumber), callLog.IncidentId);
                     await DisarmAsync(db, callLog, ct);
                     continue;
                 }
@@ -182,7 +183,7 @@ public sealed class VoiceCallRetryQuartzJob(
                     logger.LogError(ex,
                         "VoiceCallRetry: provider threw for incident {IncidentId} ({Phone}) — cannot tell whether the call was placed. "
                         + "Not re-dialling; re-checking later",
-                        callLog.IncidentId, callLog.PhoneNumber);
+                        callLog.IncidentId, PiiRedactor.Phone(callLog.PhoneNumber));
                     await ReArmAfterFailedDialOutAsync(db, callLog, VoiceDialOutFailureKind.ProviderThrew, ct);
                     continue;
                 }
@@ -196,7 +197,7 @@ public sealed class VoiceCallRetryQuartzJob(
                 // The provider answered, and its answer is "I did not place this call".
                 logger.LogWarning(
                     "VoiceCallRetry failed for incident {IncidentId} ({Phone}): {Error}",
-                    callLog.IncidentId, callLog.PhoneNumber, result.ErrorMessage);
+                    callLog.IncidentId, PiiRedactor.Phone(callLog.PhoneNumber), result.ErrorMessage);
 
                 await ReArmAfterFailedDialOutAsync(db, callLog, VoiceDialOutFailureKind.ProviderRefused, ct);
             }
@@ -263,7 +264,7 @@ public sealed class VoiceCallRetryQuartzJob(
             logger.LogError(
                 "VoiceCallRetry: the retry call to {Phone} for incident {IncidentId} WAS PLACED, but releasing the row failed. "
                 + "It stays claimed until {ClaimWindow} from now, when the sweep will look for the call's own CallLog row and stand down.",
-                callLog.PhoneNumber, callLog.IncidentId, ClaimWindow);
+                PiiRedactor.Phone(callLog.PhoneNumber), callLog.IncidentId, ClaimWindow);
     }
 
     /// <summary>No call went out, so this row is still the chain and its deadline is pushed out, anchored
@@ -276,7 +277,7 @@ public sealed class VoiceCallRetryQuartzJob(
         {
             logger.LogInformation(
                 "VoiceCallRetry: incident {IncidentId} became {Status} while the dial was in flight; not re-arming the retry to {Phone}",
-                callLog.IncidentId, status?.ToString() ?? "gone", callLog.PhoneNumber);
+                callLog.IncidentId, status?.ToString() ?? "gone", PiiRedactor.Phone(callLog.PhoneNumber));
             await DisarmAsync(db, callLog, ct);
             return;
         }
@@ -309,7 +310,7 @@ public sealed class VoiceCallRetryQuartzJob(
             logger.LogWarning(
                 "VoiceCallRetry: could not re-arm the retry to {Phone} for incident {IncidentId}; it keeps its claim and the next "
                 + "sweep will retry the dial from durable state",
-                callLog.PhoneNumber, callLog.IncidentId);
+                PiiRedactor.Phone(callLog.PhoneNumber), callLog.IncidentId);
     }
 
     /// <summary>Stops a chain that has failed to place its call for the whole window, and records which of
@@ -346,7 +347,7 @@ public sealed class VoiceCallRetryQuartzJob(
         logger.LogError(
             "VoiceCallRetry: could not place the retry call to {Phone} for incident {IncidentId} for {Window}; chain stopped ({Reason}). "
             + "Nobody may have been reached on this attempt — check the voice provider.",
-            callLog.PhoneNumber, callLog.IncidentId, window, reason);
+            PiiRedactor.Phone(callLog.PhoneNumber), callLog.IncidentId, window, reason);
 
         // The operator's surface is the incident timeline, not the worker log. A retry chain that
         // gives up in silence is how "the page went out" turns into nobody answering the phone.
@@ -367,7 +368,7 @@ public sealed class VoiceCallRetryQuartzJob(
             logger.LogError(
                 "VoiceCallRetry: the give-up for incident {IncidentId} ({Phone}) could not be recorded. The row keeps its claim and "
                 + "the next sweep will reach this decision again — the operator has NOT been told yet.",
-                callLog.IncidentId, callLog.PhoneNumber);
+                callLog.IncidentId, PiiRedactor.Phone(callLog.PhoneNumber));
     }
 
     private static string Recipient(CallLog callLog) =>

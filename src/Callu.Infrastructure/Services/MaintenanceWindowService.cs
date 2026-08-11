@@ -195,13 +195,19 @@ public class MaintenanceWindowService(
         _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc),
     };
 
-    private static List<Guid> ParseAffectedServiceIds(MaintenanceWindow m)
+    private List<Guid> ParseAffectedServiceIds(MaintenanceWindow m)
     {
         try { return JsonSerializer.Deserialize<List<Guid>>(m.AffectedServiceIdsJson, JsonOpts) ?? []; }
-        catch { return []; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Maintenance window {WindowId} ('{Title}') has an unreadable affected-service list, so it covers "
+                + "no service and suppresses nothing", m.Id, m.Title);
+            return [];
+        }
     }
 
-    private static MaintenanceWindowDto MapToDto(MaintenanceWindow m)
+    private MaintenanceWindowDto MapToDto(MaintenanceWindow m)
     {
         var now = DateTime.UtcNow;
         var serviceIds = ParseAffectedServiceIds(m);
