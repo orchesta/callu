@@ -15,4 +15,5 @@ public sealed record WebhookDeliveryDto(
     DateTime AttemptedAt,
     DateTime? NextRetryAt,
     WebhookDeliveryStatus Status,
-    string? ResponseBodySample);
+    string? ResponseBodySample,
+    string? ActionName = null);

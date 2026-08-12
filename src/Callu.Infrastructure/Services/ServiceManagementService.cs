@@ -24,6 +24,7 @@ public class ServiceManagementService(
     IStatusPageComponentService statusPageComponentService,
     IUptimeCalculator uptimeCalculator,
     IIncidentService incidentService,
+    Microsoft.Extensions.Options.IOptions<Configuration.CommunicationSettingsOptions> communicationSettings,
     ILogger<ServiceManagementService> logger) : IServiceManagementService
 {
     public async Task<Result<ServiceDto>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -136,6 +137,9 @@ public class ServiceManagementService(
 
     public async Task<Result<ServiceDto>> CreateAsync(CreateServiceRequest dto, CancellationToken cancellationToken = default)
     {
+        ServiceAckConfigurationGuard.EnsureValid(
+            dto.AckUrl, dto.AckPayloadTemplate, communicationSettings.Value.AllowPrivateWebhookEndpoint);
+
         return await transactionManager.ExecuteInTransactionAsync(async () =>
         {
             var service = dto.Adapt<Service>();
@@ -144,8 +148,10 @@ public class ServiceManagementService(
             service.Status = ServiceStatus.Operational;
 
             await serviceRepo.AddAsync(service, cancellationToken);
-            
-            await auditLogService.LogAsync(null, AuditAction.Created, "Service", service.Id.ToString(), null, System.Text.Json.JsonSerializer.Serialize(dto), cancellationToken: cancellationToken);
+
+            // The trail records that a signing secret was set, never its value.
+            var auditedCreate = dto with { AckSecret = Redact(dto.AckSecret) };
+            await auditLogService.LogAsync(null, AuditAction.Created, "Service", service.Id.ToString(), null, System.Text.Json.JsonSerializer.Serialize(auditedCreate), cancellationToken: cancellationToken);
 
             return Result.Success(service.Adapt<ServiceDto>());
         }, cancellationToken);
@@ -153,6 +159,9 @@ public class ServiceManagementService(
 
     public async Task<Result<ServiceDto>> UpdateAsync(Guid id, UpdateServiceRequest dto, CancellationToken cancellationToken = default)
     {
+        ServiceAckConfigurationGuard.EnsureValid(
+            dto.AckUrl, dto.AckPayloadTemplate, communicationSettings.Value.AllowPrivateWebhookEndpoint);
+
         IReadOnlyList<ServiceCascadeOutcome> cascade = [];
 
         var result = await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -163,17 +172,15 @@ public class ServiceManagementService(
             var oldValues = System.Text.Json.JsonSerializer.Serialize(service.Adapt<ServiceDto>());
             var oldStatus = service.Status;
 
-            var originalAckMethod = service.AckHttpMethod ?? "POST";
-            var originalAckCType = service.AckContentType ?? "application/json";
-
             dto.Adapt(service);
 
-            service.AckHttpMethod ??= originalAckMethod;
-            service.AckContentType ??= originalAckCType;
+            // TeamId keeps its null-clears contract: the UI clears a team by omitting the field.
+            if (dto.TeamId is null) service.TeamId = null;
 
             service.UpdatedAt = DateTime.UtcNow;
 
-            await auditLogService.LogAsync(null, AuditAction.Updated, "Service", id.ToString(), oldValues, System.Text.Json.JsonSerializer.Serialize(dto), cancellationToken: cancellationToken);
+            var auditedUpdate = dto with { AckSecret = Redact(dto.AckSecret) };
+            await auditLogService.LogAsync(null, AuditAction.Updated, "Service", id.ToString(), oldValues, System.Text.Json.JsonSerializer.Serialize(auditedUpdate), cancellationToken: cancellationToken);
 
             if (service.Status != oldStatus)
             {
@@ -189,6 +196,8 @@ public class ServiceManagementService(
 
         return result;
     }
+
+    private static string? Redact(string? secret) => string.IsNullOrEmpty(secret) ? secret : "***";
 
     public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {

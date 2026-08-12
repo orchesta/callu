@@ -51,6 +51,7 @@ public static class DependencyInjection
             options.AddPolicy(Policies.CanManageRunbooks, policy => policy.RequireClaim("CanManageRunbooks", "true"));
             options.AddPolicy(Policies.CanViewPostmortems, policy => policy.RequireClaim("CanViewPostmortems", "true"));
             options.AddPolicy(Policies.CanManagePostmortems, policy => policy.RequireClaim("CanManagePostmortems", "true"));
+            options.AddPolicy(Policies.CanExecuteServiceActions, policy => policy.RequireClaim("CanExecuteServiceActions", "true"));
         });
 
         return services;
@@ -86,4 +87,5 @@ public static class Policies
     public const string CanManageRunbooks = nameof(CanManageRunbooks);
     public const string CanViewPostmortems = nameof(CanViewPostmortems);
     public const string CanManagePostmortems = nameof(CanManagePostmortems);
+    public const string CanExecuteServiceActions = nameof(CanExecuteServiceActions);
 }

@@ -15,6 +15,8 @@ public class SecretsNeverReachTheAuditTrailTests
         "NotificationChannelService.cs",
         "WebhookConfigService.cs",
         "ProfileService.cs",
+        "ServiceManagementService.cs",
+        "ServiceActionService.cs",
     };
 
     /// <summary>Names that hold a credential in these services.</summary>
@@ -32,6 +34,10 @@ public class SecretsNeverReachTheAuditTrailTests
         "service.WebhookSecret",
         "currentPassword",
         "newPassword",
+        "Serialize(dto)",
+        "dto.AckSecret",
+        "request.Secret",
+        "action.Secret",
     };
 
     private static string SolutionRoot()
@@ -89,6 +95,8 @@ public class SecretsNeverReachTheAuditTrailTests
     [InlineData("NotificationChannelService.cs")]
     [InlineData("WebhookConfigService.cs")]
     [InlineData("ProfileService.cs")]
+    [InlineData("ServiceManagementService.cs")]
+    [InlineData("ServiceActionService.cs")]
     public void NoAuditCallCarriesACredential(string file)
     {
         var offenders = AuditCalls(Read(file))

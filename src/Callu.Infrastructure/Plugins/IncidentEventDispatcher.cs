@@ -26,7 +26,10 @@ public class IncidentEventDispatcher(
     ApplicationDbContext dbContext,
     ILogger<IncidentEventDispatcher> logger,
     IHttpClientFactory httpClientFactory,
-    IOptions<Configuration.CommunicationSettingsOptions> communicationSettings) : IIncidentEventDispatcher
+    IOptions<Configuration.CommunicationSettingsOptions> communicationSettings,
+    Telemetry.CalluMetrics? metrics = null,
+    Callu.Application.Services.IAuditLogService? auditLog = null,
+    IRepository<ServiceAction>? serviceActions = null) : IIncidentEventDispatcher
 {
     private static readonly TimeSpan[] RetryBackoff =
     [
@@ -49,6 +52,24 @@ public class IncidentEventDispatcher(
     internal static string? ClampError(string? error) =>
         error is { Length: > MaxErrorLength } ? error[..MaxErrorLength] : error;
 
+    /// <summary>Whether the service's event selection covers this ack type; a null selection means acknowledge and resolve.</summary>
+    internal static bool AckEventSelected(ServiceAckEvents? events, string ackType)
+    {
+        if (events is null)
+            return ackType is "acknowledge" or "resolve";
+
+        var flag = ackType switch
+        {
+            "created" => ServiceAckEvents.Created,
+            "acknowledge" => ServiceAckEvents.Acknowledged,
+            "resolve" => ServiceAckEvents.Resolved,
+            "closed" => ServiceAckEvents.Closed,
+            "reopened" => ServiceAckEvents.Reopened,
+            _ => ServiceAckEvents.None,
+        };
+        return flag != ServiceAckEvents.None && events.Value.HasFlag(flag);
+    }
+
     public async Task<AckDispatchOutcome> SendServiceAckAsync(Guid incidentId, string ackType, CancellationToken cancellationToken = default)
     {
         try
@@ -63,9 +84,9 @@ public class IncidentEventDispatcher(
 
             var service = incident.Service;
 
-            if (!service.AckEnabled)
+            if (!service.AckEnabled || !AckEventSelected(service.AckEvents, ackType))
             {
-                logger.LogDebug("Service {ServiceId} has ACK disabled, skipping", service.Id);
+                logger.LogDebug("Service {ServiceId} has ACK disabled or event '{AckType}' unselected, skipping", service.Id, ackType);
                 return AckDispatchOutcome.Skipped;
             }
 
@@ -105,12 +126,35 @@ public class IncidentEventDispatcher(
             var scribanTemplate = Scriban.Template.Parse(service.AckPayloadTemplate);
             if (scribanTemplate.HasErrors)
             {
+                var templateErrors = string.Join("; ", scribanTemplate.Messages.Select(m => m.Message));
                 logger.LogError("ACK template for service {ServiceId} has errors: {Errors}",
-                    service.Id, string.Join("; ", scribanTemplate.Messages.Select(m => m.Message)));
-                return AckDispatchOutcome.Skipped;
+                    service.Id, templateErrors);
+                // A configuration rejection is a Failed delivery, not silence — same rule as the
+                // SSRF guard below: the operator looks at the delivery panel, not container logs.
+                return await RecordAttemptAsync(
+                    incidentId, service.Id, service.AckUrl, ackType, service.AckPayloadTemplate,
+                    null, null, $"Template parse error: {templateErrors}", retryable: false, cancellationToken);
             }
 
-            var renderedPayload = await scribanTemplate.RenderAsync(templateData);
+            string renderedPayload;
+            try
+            {
+                renderedPayload = await scribanTemplate.RenderAsync(templateData);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "ACK template for service {ServiceId} failed to render", service.Id);
+                return await RecordAttemptAsync(
+                    incidentId, service.Id, service.AckUrl, ackType, service.AckPayloadTemplate,
+                    null, null, $"Template render error: {ex.Message}", retryable: false, cancellationToken);
+            }
+
+            if (!IsBareMediaType(service.AckContentType ?? "application/json"))
+            {
+                return await RecordAttemptAsync(
+                    incidentId, service.Id, service.AckUrl, ackType, renderedPayload,
+                    null, null, $"Invalid content type '{service.AckContentType}'", retryable: false, cancellationToken);
+            }
 
             // allowPrivate is honoured here too, so an internal ACK URL the operator opted into is
             // not refused by this validator after the HttpClient already accepted it.
@@ -148,9 +192,13 @@ public class IncidentEventDispatcher(
                 Content = new StringContent(renderedPayload, System.Text.Encoding.UTF8, service.AckContentType ?? "application/json")
             };
 
-            // Stable across every retry and distinct per (incident, ack type), so a receiver can
-            // tell a retry from a new event when the body is byte-identical.
-            request.Headers.TryAddWithoutValidation(DeliveryKeyHeader, $"{incidentId:D}:{ackType}");
+            // Stable across every retry and distinct per (incident, ack type). A reopened incident
+            // starts a new episode, so its repeat of an already-delivered event gets a fresh key.
+            var episode = await deliveries.GetQueryable().CountAsync(
+                d => d.IncidentId == incidentId && d.AckType == ackType && d.Status == WebhookDeliveryStatus.Succeeded,
+                cancellationToken);
+            request.Headers.TryAddWithoutValidation(DeliveryKeyHeader,
+                episode == 0 ? $"{incidentId:D}:{ackType}" : $"{incidentId:D}:{ackType}:e{episode}");
 
             if (!string.IsNullOrEmpty(service.AckHeaders))
             {
@@ -178,14 +226,19 @@ public class IncidentEventDispatcher(
                 }
             }
 
-            if (!string.IsNullOrEmpty(service.WebhookSecret))
+            // A dedicated outbound secret wins; the inbound WebhookSecret stays as the fallback so
+            // configs predating AckSecret keep signing exactly as before.
+            var signingSecret = string.IsNullOrEmpty(service.AckSecret) ? service.WebhookSecret : service.AckSecret;
+            if (!string.IsNullOrEmpty(signingSecret))
             {
-                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(service.WebhookSecret));
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingSecret));
                 var signature = "sha256=" + Convert.ToHexString(
                     hmac.ComputeHash(Encoding.UTF8.GetBytes(renderedPayload))).ToLowerInvariant();
-                var sigHeader = string.IsNullOrWhiteSpace(service.WebhookSignatureHeader)
-                    ? "X-Callu-Signature"
-                    : service.WebhookSignatureHeader;
+                var sigHeader = !string.IsNullOrWhiteSpace(service.AckSignatureHeader)
+                    ? service.AckSignatureHeader
+                    : !string.IsNullOrWhiteSpace(service.WebhookSignatureHeader)
+                        ? service.WebhookSignatureHeader
+                        : "X-Callu-Signature";
                 request.Headers.TryAddWithoutValidation(sigHeader, signature);
             }
 
@@ -234,6 +287,352 @@ public class IncidentEventDispatcher(
         {
             logger.LogError(ex, "Error sending ACK for incident {IncidentId}", incidentId);
             return AckDispatchOutcome.NotRecorded;
+        }
+    }
+
+    public async Task<Callu.Shared.Models.Services.ServiceActionExecutionResult> ExecuteManualActionAsync(
+        Guid incidentId, Guid actionId, string actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (serviceActions is null)
+            throw new InvalidOperationException("Service action repository is not available.");
+
+        var incident = await incidents.GetWithServiceAsync(incidentId, cancellationToken)
+            ?? throw new Callu.Shared.Exceptions.NotFoundException("Incident", incidentId);
+        if (incident.Service is null)
+            throw new Callu.Shared.Exceptions.NotFoundException("ServiceAction", actionId);
+
+        var action = await serviceActions.GetQueryable()
+            .FirstOrDefaultAsync(a => a.Id == actionId && !a.IsDeleted, cancellationToken);
+        if (action is null || !action.IsEnabled || action.ServiceId != incident.Service.Id)
+            throw new Callu.Shared.Exceptions.NotFoundException("ServiceAction", actionId);
+
+        var chainKey = $"manual:{actionId:D}";
+        await GuardAgainstDoubleClickAsync(incidentId, chainKey, cancellationToken);
+
+        string renderedPayload = string.Empty;
+        if (!string.IsNullOrEmpty(action.PayloadTemplate) && action.HttpMethod != "GET")
+        {
+            var template = Scriban.Template.Parse(action.PayloadTemplate);
+            if (template.HasErrors)
+            {
+                var parseError = "Template parse error: " +
+                    string.Join("; ", template.Messages.Select(m => m.Message));
+                return await FinishManualAsync(incident, action, chainKey, actorUserId,
+                    requestBody: action.PayloadTemplate, null, null, parseError, cancellationToken);
+            }
+
+            try
+            {
+                renderedPayload = await template.RenderAsync(ManualTemplateData(incident, incident.Service, action));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return await FinishManualAsync(incident, action, chainKey, actorUserId,
+                    requestBody: action.PayloadTemplate, null, null,
+                    $"Template render error: {ex.Message}", cancellationToken);
+            }
+        }
+
+        if (action.HttpMethod != "GET" && !IsBareMediaType(action.ContentType))
+        {
+            return await FinishManualAsync(incident, action, chainKey, actorUserId,
+                renderedPayload, null, null, $"Invalid content type '{action.ContentType}'", cancellationToken);
+        }
+
+        var allowPrivate = communicationSettings.Value.AllowPrivateWebhookEndpoint;
+        // Unresolvable is terminal here, unlike the event path: a manual run gets exactly one attempt.
+        if (CheckAckUrl(action.Url, allowPrivate, out var urlRejection) != AckUrlCheck.Ok)
+        {
+            return await FinishManualAsync(incident, action, chainKey, actorUserId,
+                renderedPayload, null, null, urlRejection, cancellationToken);
+        }
+
+        var pending = await WriteManualRowAsync(incident, action, chainKey, renderedPayload,
+            WebhookDeliveryStatus.Pending, null, null, null, cancellationToken);
+
+        int? httpStatus = null;
+        string? responseSample = null;
+        string? errorMessage = null;
+
+        try
+        {
+            var httpClient = httpClientFactory.CreateClient("WebhookDispatch");
+            using var request = new HttpRequestMessage(new HttpMethod(action.HttpMethod), action.Url);
+            if (action.HttpMethod != "GET")
+                request.Content = new StringContent(renderedPayload, Encoding.UTF8, action.ContentType);
+
+            // Per-execution unique: every click is a distinct intended execution, never a retry.
+            request.Headers.TryAddWithoutValidation(DeliveryKeyHeader,
+                $"{incidentId:D}:{chainKey}:{(pending?.Id ?? Guid.Empty):D}");
+
+            ApplyOperatorHeaders(request, action.HeadersJson, action.ServiceId);
+
+            // Only the action's own secret signs; a manual target is not the alert source, so the
+            // service's inbound webhook secret is never borrowed here.
+            if (!string.IsNullOrEmpty(action.Secret))
+            {
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(action.Secret));
+                var signature = "sha256=" + Convert.ToHexString(
+                    hmac.ComputeHash(Encoding.UTF8.GetBytes(renderedPayload))).ToLowerInvariant();
+                var sigHeader = string.IsNullOrWhiteSpace(action.SignatureHeader)
+                    ? "X-Callu-Signature"
+                    : action.SignatureHeader;
+                request.Headers.TryAddWithoutValidation(sigHeader, signature);
+            }
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            httpStatus = (int)response.StatusCode;
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            responseSample = body.Length > 1024 ? body[..1024] : body;
+            if (!response.IsSuccessStatusCode)
+                errorMessage = $"HTTP {httpStatus}";
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (FormatException ex)
+        {
+            errorMessage = $"Invalid request configuration: {ex.Message}";
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            errorMessage = "Connect/read timeout";
+        }
+
+        return await FinishManualAsync(incident, action, chainKey, actorUserId,
+            renderedPayload, httpStatus, responseSample, errorMessage, cancellationToken, pending);
+    }
+
+    /// <summary>One recent terminal row means a double-click; a fresh Pending row means a send is still in flight.</summary>
+    private async Task GuardAgainstDoubleClickAsync(Guid incidentId, string chainKey, CancellationToken cancellationToken)
+    {
+        var last = await deliveries.GetQueryable()
+            .Where(d => d.IncidentId == incidentId && d.AckType == chainKey)
+            .OrderByDescending(d => d.AttemptedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (last is null) return;
+
+        if (last.Status == WebhookDeliveryStatus.Pending)
+        {
+            if (last.AttemptedAt > DateTime.UtcNow.AddMinutes(-2))
+                throw new Callu.Shared.Exceptions.ConflictException(
+                    "This action is already executing for this incident.");
+
+            // Stranded by a crash mid-send: closed out, never re-sent.
+            last.Status = WebhookDeliveryStatus.Failed;
+            last.Error = ClampError("Interrupted: the process stopped before a result was recorded.");
+            last.NextRetryAt = null;
+            last.UpdatedAt = DateTime.UtcNow;
+            try
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another request closed it in the same instant; treat the race as a double click.
+                dbContext.Entry(last).State = EntityState.Detached;
+                throw new Callu.Shared.Exceptions.ConflictException(
+                    "This action is already executing for this incident.");
+            }
+            return;
+        }
+
+        if (last.AttemptedAt > DateTime.UtcNow.AddSeconds(-10))
+            throw new Callu.Shared.Exceptions.ConflictException(
+                "This action was just executed for this incident; wait a moment before running it again.");
+    }
+
+    /// <summary>Writes or finalizes the manual delivery row, then the operator-facing trail; returns the synchronous result.</summary>
+    private async Task<Callu.Shared.Models.Services.ServiceActionExecutionResult> FinishManualAsync(
+        Incident incident, ServiceAction action, string chainKey, string actorUserId,
+        string requestBody, int? httpStatus, string? responseSample, string? error,
+        CancellationToken cancellationToken, WebhookDelivery? pendingRow = null)
+    {
+        var status = error is null ? WebhookDeliveryStatus.Succeeded : WebhookDeliveryStatus.Failed;
+
+        WebhookDelivery? row = pendingRow;
+        try
+        {
+            if (row is not null)
+            {
+                row.Status = status;
+                row.HttpStatus = httpStatus;
+                row.ResponseBodySample = responseSample;
+                row.Error = ClampError(error);
+                row.UpdatedAt = DateTime.UtcNow;
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                row = await WriteManualRowAsync(incident, action, chainKey, requestBody,
+                    status, httpStatus, responseSample, error, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (row is not null)
+                dbContext.Entry(row).State = EntityState.Detached;
+            logger.LogWarning(ex,
+                "Could not finalize the delivery row for manual action {ActionId} on incident {IncidentId}",
+                action.Id, incident.Id);
+        }
+
+        metrics?.ServiceActionExecution("manual", error is null ? "succeeded" : "failed");
+
+        var trail = new IncidentTimelineEvent
+        {
+            IncidentId = incident.Id,
+            EventType = error is null ? TimelineEventType.ActionExecuted : TimelineEventType.ActionFailed,
+            Title = error is null ? $"Action '{action.Name}' executed" : $"Action '{action.Name}' failed",
+            Description = error is null
+                ? $"{action.HttpMethod} {action.Url} → HTTP {httpStatus}"
+                : $"{action.HttpMethod} {action.Url} → {error}",
+            ActorUserId = actorUserId,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            dbContext.Set<IncidentTimelineEvent>().Add(trail);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (auditLog is not null)
+                await auditLog.LogAsync(
+                    actorUserId,
+                    error is null ? AuditAction.ServiceActionExecuted : AuditAction.ServiceActionFailed,
+                    "ServiceAction", action.Id.ToString(),
+                    null, error is null ? $"HTTP {httpStatus}" : ClampError(error),
+                    description: $"Manual action '{action.Name}' on incident {incident.Id}",
+                    cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            dbContext.Entry(trail).State = EntityState.Detached;
+            logger.LogWarning(ex,
+                "Could not write the trail for manual action {ActionId} on incident {IncidentId}; the delivery row is the record",
+                action.Id, incident.Id);
+        }
+
+        return new Callu.Shared.Models.Services.ServiceActionExecutionResult
+        {
+            Outcome = error is null ? "succeeded" : "failed",
+            DeliveryId = row?.Id,
+            HttpStatus = httpStatus,
+            Error = ClampError(error),
+            ResponseBodySample = responseSample,
+        };
+    }
+
+    private async Task<WebhookDelivery?> WriteManualRowAsync(
+        Incident incident, ServiceAction action, string chainKey, string requestBody,
+        WebhookDeliveryStatus status, int? httpStatus, string? responseSample, string? error,
+        CancellationToken cancellationToken)
+    {
+        WebhookDelivery? row = null;
+        try
+        {
+            var chain = deliveries.GetQueryable()
+                .Where(d => d.IncidentId == incident.Id && d.AckType == chainKey);
+            var rowCount = await chain.CountAsync(cancellationToken);
+            var highestOrdinal = await chain.MaxAsync(d => (int?)d.AttemptCount, cancellationToken) ?? 0;
+
+            row = new WebhookDelivery
+            {
+                Id = Guid.NewGuid(),
+                IncidentId = incident.Id,
+                ServiceId = action.ServiceId,
+                Direction = "Outbound",
+                Url = action.Url[..Math.Min(500, action.Url.Length)],
+                AckType = chainKey,
+                ActionId = action.Id,
+                ActionName = action.Name,
+                HttpStatus = httpStatus,
+                RequestBodySample = requestBody.Length > 1024 ? requestBody[..1024] : requestBody,
+                ResponseBodySample = responseSample,
+                Error = ClampError(error),
+                AttemptCount = Math.Max(highestOrdinal, rowCount) + 1,
+                AttemptedAt = DateTime.UtcNow,
+                NextRetryAt = null,
+                Status = status,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await deliveries.AddAsync(row, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return row;
+        }
+        catch (DbUpdateException ex) when (
+            status == WebhookDeliveryStatus.Pending &&
+            ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })
+        {
+            // The in-flight unique index says another request claimed this chain first.
+            if (row is not null)
+                dbContext.Entry(row).State = EntityState.Detached;
+            throw new Callu.Shared.Exceptions.ConflictException(
+                "This action is already executing for this incident.");
+        }
+        catch (Exception ex)
+        {
+            if (row is not null)
+                dbContext.Entry(row).State = EntityState.Detached;
+            logger.LogWarning(ex,
+                "Could not persist the delivery row for manual action {ActionId} on incident {IncidentId}",
+                action.Id, incident.Id);
+            return null;
+        }
+    }
+
+    private static Dictionary<string, object> ManualTemplateData(Incident incident, Service service, ServiceAction action) => new()
+    {
+        ["incident"] = new Dictionary<string, object?>
+        {
+            ["id"] = incident.Id.ToString(),
+            ["title"] = incident.Title,
+            ["description"] = incident.Description,
+            ["severity"] = incident.Severity.ToString(),
+            ["status"] = incident.Status.ToString(),
+            ["external_id"] = incident.ExternalAlertId,
+            ["started_at"] = incident.CreatedAt.ToString("o"),
+            ["resolved_at"] = incident.ResolvedAt?.ToString("o"),
+        },
+        ["service"] = new Dictionary<string, object?>
+        {
+            ["id"] = service.Id.ToString(),
+            ["name"] = service.Name,
+        },
+        ["action"] = new Dictionary<string, object?>
+        {
+            ["id"] = action.Id.ToString(),
+            ["name"] = action.Name,
+        },
+    };
+
+    /// <summary>Applies operator-configured headers with the same caps and hop-by-hop blocklist as the event path.</summary>
+    private void ApplyOperatorHeaders(HttpRequestMessage request, string? headersJson, Guid serviceId)
+    {
+        if (string.IsNullOrEmpty(headersJson)) return;
+        try
+        {
+            var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(headersJson);
+            if (headers is null) return;
+
+            var applied = 0;
+            foreach (var (key, value) in headers)
+            {
+                if (applied >= 20) break;
+                if (string.IsNullOrWhiteSpace(key) || value is null || value.Length > 2048) continue;
+                if (key.ToLowerInvariant() is "host" or "content-length" or "transfer-encoding"
+                    or "connection" or "proxy-authorization" or "proxy-connection") continue;
+                if (key.Equals(DeliveryKeyHeader, StringComparison.OrdinalIgnoreCase)) continue;
+                request.Headers.TryAddWithoutValidation(key, value);
+                applied++;
+            }
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Failed to parse action headers for service {ServiceId}", serviceId);
         }
     }
 
@@ -294,6 +693,20 @@ public class IncidentEventDispatcher(
 
             await deliveries.AddAsync(row, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var isManual = ackType.StartsWith("manual:", StringComparison.Ordinal);
+            metrics?.ServiceActionExecution(isManual ? "manual" : "event", status switch
+            {
+                WebhookDeliveryStatus.Succeeded => "succeeded",
+                WebhookDeliveryStatus.Retrying => "retrying",
+                _ => "failed",
+            });
+
+            // A dead event chain leaves a mark where the operator looks; manual runs write their
+            // own trail with the real actor at the call site.
+            if (status == WebhookDeliveryStatus.Failed && !isManual)
+                await WriteChainFailedTraceAsync(incidentId, ackType, url, row.Error, attemptCount, cancellationToken);
+
             return AckDispatchOutcome.Recorded;
         }
         catch (Exception ex)
@@ -303,6 +716,41 @@ public class IncidentEventDispatcher(
 
             logger.LogWarning(ex, "Failed to persist WebhookDelivery row for incident {IncidentId}", incidentId);
             return AckDispatchOutcome.NotRecorded;
+        }
+    }
+
+    /// <summary>Timeline and audit trace for an event chain that will never be retried again; never throws.</summary>
+    private async Task WriteChainFailedTraceAsync(
+        Guid incidentId, string ackType, string url, string? error, int attemptCount, CancellationToken cancellationToken)
+    {
+        var trace = new IncidentTimelineEvent
+        {
+            IncidentId = incidentId,
+            EventType = TimelineEventType.ActionFailed,
+            Title = "ACK callback failed",
+            Description = $"Callback '{ackType}' to {url} failed permanently after {attemptCount} attempt(s): {error}",
+            ActorUserId = "system:action",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            dbContext.Set<IncidentTimelineEvent>().Add(trace);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (auditLog is not null)
+                await auditLog.LogAsync(
+                    "system:action", AuditAction.ServiceActionFailed, "Incident", incidentId.ToString(),
+                    null, ClampError(error),
+                    description: $"ACK callback '{ackType}' failed permanently",
+                    cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            dbContext.Entry(trace).State = EntityState.Detached;
+            logger.LogWarning(ex,
+                "Could not write the failure trace for ACK chain '{AckType}' on incident {IncidentId}; the delivery row itself was persisted",
+                ackType, incidentId);
         }
     }
 
@@ -320,6 +768,11 @@ public class IncidentEventDispatcher(
 
     /// <summary>Idempotency key for the receiver; reserved, so operator headers cannot shadow it.</summary>
     private const string DeliveryKeyHeader = "X-Callu-Delivery-Key";
+
+    /// <summary>A bare type/subtype media type, the only shape StringContent accepts without throwing.</summary>
+    internal static bool IsBareMediaType(string value) =>
+        System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(value, out var parsed)
+        && string.Equals(parsed.MediaType, value, StringComparison.OrdinalIgnoreCase);
 
     private static AckUrlCheck CheckAckUrl(string url, bool allowPrivate, out string rejectionReason)
     {

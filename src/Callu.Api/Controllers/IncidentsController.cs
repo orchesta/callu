@@ -110,6 +110,18 @@ public class IncidentsController(
     }
 
     /// <summary>
+    /// Run an operator-defined service action for this incident (one attempt, never retried).
+    /// </summary>
+    [HttpPost("{id:guid}/actions/{actionId:guid}/execute")]
+    [Authorize(Policy = Policies.CanExecuteServiceActions)]
+    public async Task<IActionResult> ExecuteServiceAction(Guid id, Guid actionId, CancellationToken cancellationToken)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var result = await incidentService.ExecuteServiceActionAsync(id, actionId, userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Resolve an incident
     /// </summary>
     [HttpPost("{id:guid}/resolve")]

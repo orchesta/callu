@@ -33,6 +33,7 @@ public class DbSeeder : IDbSeeder
             "CanManageTeams", "CanViewTeams",
             "CanManageIncidents", "CanViewIncidents",
             "CanAcknowledgeIncidents", "CanResolveIncidents", "CanViewCallLogs",
+            "CanExecuteServiceActions",
             "CanManageEscalations", "CanViewEscalations",
             "CanManageSchedules", "CanViewSchedules",
             "CanManageRunbooks", "CanViewRunbooks",
@@ -45,6 +46,7 @@ public class DbSeeder : IDbSeeder
             "CanManageTeams", "CanViewTeams",
             "CanManageIncidents", "CanViewIncidents",
             "CanAcknowledgeIncidents", "CanResolveIncidents", "CanViewCallLogs",
+            "CanExecuteServiceActions",
             "CanManageEscalations", "CanViewEscalations",
             "CanManageSchedules", "CanViewSchedules",
             "CanManageRunbooks", "CanViewRunbooks",
@@ -56,6 +58,7 @@ public class DbSeeder : IDbSeeder
             "CanViewServices", "CanViewTeams", "CanViewIncidents",
             "CanViewEscalations", "CanViewSchedules", "CanViewCallLogs",
             "CanAcknowledgeIncidents", "CanResolveIncidents",
+            "CanExecuteServiceActions",
             "CanViewRunbooks", "CanViewPostmortems",
             "CanViewReports"
         },

@@ -23,6 +23,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<Team> Teams { get; set; } = null!;
     public DbSet<TeamMember> TeamMembers { get; set; } = null!;
     public DbSet<Service> Services { get; set; } = null!;
+    public DbSet<ServiceAction> ServiceActions { get; set; } = null!;
     public DbSet<Schedule> Schedules { get; set; } = null!;
     public DbSet<ScheduleRotation> ScheduleRotations { get; set; } = null!;
     public DbSet<ScheduleOccurrence> ScheduleOccurrences { get; set; } = null!;
@@ -179,6 +180,19 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
             entity.HasIndex(e => e.NextRetryAt)
                 .HasFilter("\"Status\" = 'Retrying'");
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+
+            // At most one in-flight manual execution per (incident, action); scoped to ActionId
+            // rows so historical Pending rows from other writers cannot violate it.
+            entity.HasIndex(e => new { e.IncidentId, e.AckType })
+                .IsUnique()
+                .HasFilter("\"Status\" = 'Pending' AND \"ActionId\" IS NOT NULL")
+                .HasDatabaseName("IX_WebhookDeliveries_ManualInFlight");
+
+            // Restrict, not cascade: actions are soft-deleted, and the delivery ledger outlives them.
+            entity.HasOne<ServiceAction>()
+                .WithMany()
+                .HasForeignKey(e => e.ActionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<NotificationChannelDelivery>(entity =>
@@ -316,6 +330,17 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
         {
             entity.HasIndex(e => e.Name);
             entity.HasIndex(e => e.IsBuiltIn);
+        });
+
+        modelBuilder.Entity<ServiceAction>(entity =>
+        {
+            entity.HasIndex(e => e.ServiceId);
+            entity.HasIndex(e => new { e.ServiceId, e.Name }).IsUnique().HasFilter("\"IsDeleted\" = false");
+
+            entity.HasOne(e => e.Service)
+                .WithMany()
+                .HasForeignKey(e => e.ServiceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ServiceDependency>(entity =>

@@ -152,6 +152,7 @@ public class ListAndDetailAgreeTests(PostgresFixture pg)
             Substitute.For<IStatusPageComponentService>(),
             uptime,
             Substitute.For<IIncidentService>(),
+            Microsoft.Extensions.Options.Options.Create(new Infrastructure.Configuration.CommunicationSettingsOptions()),
             NullLogger<ServiceManagementService>.Instance);
     }
 

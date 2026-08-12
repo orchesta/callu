@@ -142,13 +142,14 @@ describe("ServiceDetail — save", () => {
     });
   });
 
-  it("sends no ack headers rather than an empty object when the service has none", async () => {
+  // An empty header list travels as "" (clear), never as "{}" — omitting it would keep stored headers.
+  it("sends an empty string rather than an empty object when the service has no headers", async () => {
     useService.mockReturnValue({ data: service({ ackHeaders: undefined }), isLoading: false, error: null });
     renderDetail();
 
     await userEvent.click(screen.getByRole("button", { name: /Save Changes/i }));
 
-    expect(updateService.mock.calls[0][0].data.ackHeaders).toBeUndefined();
+    expect(updateService.mock.calls[0][0].data.ackHeaders).toBe("");
   });
 
   it("survives a service whose stored ack headers will not parse", async () => {
@@ -157,7 +158,7 @@ describe("ServiceDetail — save", () => {
 
     expect(screen.getByDisplayValue("Payments API")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Save Changes/i }));
-    expect(updateService.mock.calls[0][0].data.ackHeaders).toBeUndefined();
+    expect(updateService.mock.calls[0][0].data.ackHeaders).toBe("");
   });
 });
 

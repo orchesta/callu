@@ -59,6 +59,9 @@ vi.mock("../hooks/use-incidents", () => ({
   useReopenIncident: () => ({ mutate: reopenMutate, isPending: false }),
   useEscalateIncident: () => ({ mutate: escalateMutate, isPending: false }),
   useAddNote: () => ({ mutate: addNoteMutate, isPending: false }),
+  // The actions card has its own spec; here it only has to not break the page render.
+  useServiceActions: () => ({ data: [] }),
+  useExecuteServiceAction: () => ({ mutate: vi.fn(), isPending: false, data: undefined, error: null, reset: vi.fn() }),
 }));
 
 const usePostmortemsByIncident = vi.fn();

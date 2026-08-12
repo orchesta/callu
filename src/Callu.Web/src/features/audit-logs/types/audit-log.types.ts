@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   'Submitted', 'Rejected', 'Published', 'Locked',
   'IntegrityVerified', 'IntegrityBroken',
   'VoiceCallLost', 'VoiceCallNeverConfirmed', 'ConferenceInviteReachedNobody',
+  'ServiceActionExecuted', 'ServiceActionFailed',
 ] as const;
 
 export type AuditActionValue = (typeof AUDIT_ACTIONS)[number];

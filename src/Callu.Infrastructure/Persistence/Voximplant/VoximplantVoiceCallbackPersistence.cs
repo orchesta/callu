@@ -306,6 +306,7 @@ public class VoximplantVoiceCallbackPersistence(
         };
 
         var escalationRequested = false;
+        var acknowledgedByPhone = false;
 
         // Once the incident has a human on it, every armed voice retry for it stands down — tracked, not
         // ExecuteUpdate, so it commits in the same SaveChanges as the acknowledgement.
@@ -346,6 +347,7 @@ public class VoximplantVoiceCallbackPersistence(
                 {
                     var wasEscalating = incident.IsEscalationActive;
                     incident.Acknowledge(actorUserId ?? callLog.CalledPersonName ?? "Phone Responder");
+                    acknowledgedByPhone = true;
                     VoximplantCallDataServiceLog.IncidentAcknowledgedViaCall(logger, callLog.IncidentId);
                     auditRows.Add((AuditAction.Acknowledged, "Status: Open", "Status: Acknowledged",
                         $"Acknowledged by keypress on the call to {recipient}"));
@@ -450,6 +452,7 @@ public class VoximplantVoiceCallbackPersistence(
                     if (incident.Status == IncidentStatus.Open)
                     {
                         incident.Acknowledge(actorUserId ?? callLog.CalledPersonName ?? "Phone Responder");
+                        acknowledgedByPhone = true;
                         VoximplantCallDataServiceLog.IncidentAcknowledgedViaCall(logger, callLog.IncidentId);
                         auditRows.Add((AuditAction.Acknowledged, "Status: Open", "Status: Acknowledged",
                             $"Acknowledged implicitly by starting a conference on the call to {recipient}"));
@@ -481,6 +484,10 @@ public class VoximplantVoiceCallbackPersistence(
 
         await WriteAuditAsync(incidentId, actorUserId, auditRows, cancellationToken);
 
+        // Background-dispatched so the waiting scenario is not delayed; the alert source still hears about the acknowledgement.
+        if (acknowledgedByPhone)
+            DispatchPhoneAckInBackground(incidentId);
+
         await callbacks.NotifyActiveVoiceCallsChanged(cancellationToken);
 
         if (!escalationRequested) return VoxCallbackResult.None;
@@ -499,6 +506,25 @@ public class VoximplantVoiceCallbackPersistence(
     // left nothing in the tamper-evident trail. It is written outside the commit and swallowed on
     // failure: the scenario is waiting on this request, and a dropped audit row is a smaller loss
     // than a responder hearing the wrong prompt.
+    private void DispatchPhoneAckInBackground(Guid incidentId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = serviceProvider.CreateScope();
+                var dispatcher = scope.ServiceProvider.GetRequiredService<Callu.Application.Plugins.IIncidentEventDispatcher>();
+                await dispatcher.SendServiceAckAsync(incidentId, "acknowledge", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Could not dispatch the ACK callback for a phone acknowledgement on incident {IncidentId}",
+                    incidentId);
+            }
+        });
+    }
+
     private async Task WriteAuditAsync(
         Guid incidentId,
         string? actorUserId,

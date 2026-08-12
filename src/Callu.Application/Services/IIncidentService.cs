@@ -38,6 +38,12 @@ public interface IIncidentService
     /// Acknowledge an incident
     /// </summary>
     Task AcknowledgeIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Run an operator-defined service action for this incident, under the caller's team scope.
+    /// </summary>
+    Task<Callu.Shared.Models.Services.ServiceActionExecutionResult> ExecuteServiceActionAsync(
+        Guid incidentId, Guid actionId, string userId, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Resolve an incident

@@ -54,7 +54,8 @@ public sealed class WebhookDeliveryRetryQuartzJob(
             if (row.AttemptCount >= IncidentEventDispatcher.MaxAttempts)
             {
                 CloseOut(row, reason: null);
-                await TrySaveAsync(db, row, ct);
+                if (await TrySaveAsync(db, row, ct))
+                    await WriteChainStoppedTraceAsync(scope.ServiceProvider, db, row, ct);
                 continue;
             }
 
@@ -89,7 +90,8 @@ public sealed class WebhookDeliveryRetryQuartzJob(
             {
                 logger.LogError(ex, "Retry dispatch threw for incident {IncidentId}", row.IncidentId);
                 NoteUnrecorded(row, ex.Message);
-                await TrySaveAsync(db, row, ct);
+                if (await TrySaveAsync(db, row, ct) && row.NextRetryAt is null)
+                    await WriteChainStoppedTraceAsync(scope.ServiceProvider, db, row, ct);
                 continue;
             }
 
@@ -104,12 +106,14 @@ public sealed class WebhookDeliveryRetryQuartzJob(
 
                 case AckDispatchOutcome.Skipped:
                     NoteUnrecorded(row, "ACK is not configured for this service");
-                    await TrySaveAsync(db, row, ct);
+                    if (await TrySaveAsync(db, row, ct) && row.NextRetryAt is null)
+                        await WriteChainStoppedTraceAsync(scope.ServiceProvider, db, row, ct);
                     break;
 
                 default:
                     NoteUnrecorded(row, "Retry attempt could not be recorded");
-                    await TrySaveAsync(db, row, ct);
+                    if (await TrySaveAsync(db, row, ct) && row.NextRetryAt is null)
+                        await WriteChainStoppedTraceAsync(scope.ServiceProvider, db, row, ct);
                     break;
             }
         }
@@ -175,6 +179,43 @@ public sealed class WebhookDeliveryRetryQuartzJob(
             logger.LogWarning(
                 "Delivery {DeliveryId} (incident {IncidentId}) recorded no attempt; requeued for {NextRetryAt} (attempt {Attempt}/{Max}): {Error}",
                 row.Id, row.IncidentId, row.NextRetryAt, row.AttemptCount, IncidentEventDispatcher.MaxAttempts, error);
+    }
+
+    /// <summary>Timeline, audit and metric for a chain that stopped without a recorded attempt; never throws.</summary>
+    private async Task WriteChainStoppedTraceAsync(
+        IServiceProvider services, ApplicationDbContext db, WebhookDelivery row, CancellationToken ct)
+    {
+        if (row.AckType?.StartsWith("manual:", StringComparison.Ordinal) == true) return;
+
+        try
+        {
+            db.Set<IncidentTimelineEvent>().Add(new IncidentTimelineEvent
+            {
+                IncidentId = row.IncidentId,
+                EventType = TimelineEventType.ActionFailed,
+                Title = "ACK callback failed",
+                Description = $"Callback '{row.AckType}' to {row.Url} stopped after {row.AttemptCount} attempt(s): {row.Error}",
+                ActorUserId = "system:action",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync(ct);
+
+            services.GetService<Telemetry.CalluMetrics>()?.ServiceActionExecution("event", "failed");
+
+            var audit = services.GetService<Callu.Application.Services.IAuditLogService>();
+            if (audit is not null)
+                await audit.LogAsync(
+                    "system:action", AuditAction.ServiceActionFailed, "Incident", row.IncidentId.ToString(),
+                    null, IncidentEventDispatcher.ClampError(row.Error),
+                    description: $"ACK callback '{row.AckType}' failed permanently",
+                    cancellationToken: ct);
+        }
+        catch (Exception ex) when (!IsShutdown(ex, ct))
+        {
+            logger.LogWarning(ex,
+                "Could not write the failure trace for stopped ACK chain {DeliveryId} (incident {IncidentId})",
+                row.Id, row.IncidentId);
+        }
     }
 
     /// <summary>

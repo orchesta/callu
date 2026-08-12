@@ -2435,6 +2435,9 @@ namespace Callu.Infrastructure.Migrations
                     b.Property<bool>("AckEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<int?>("AckEvents")
+                        .HasColumnType("integer");
+
                     b.Property<string>("AckHeaders")
                         .HasColumnType("text");
 
@@ -2445,6 +2448,14 @@ namespace Callu.Infrastructure.Migrations
 
                     b.Property<string>("AckPayloadTemplate")
                         .HasColumnType("text");
+
+                    b.Property<string>("AckSecret")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("AckSignatureHeader")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("AckUrl")
                         .HasMaxLength(500)
@@ -2563,6 +2574,93 @@ namespace Callu.Infrastructure.Migrations
                         .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("Services");
+                });
+
+            modelBuilder.Entity("Callu.Domain.Entities.ServiceAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("HeadersJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HttpMethod")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PayloadTemplate")
+                        .HasColumnType("text");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Secret")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("ServiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SignatureHeader")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("ServiceId", "Name")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("ServiceActions");
                 });
 
             modelBuilder.Entity("Callu.Domain.Entities.ServiceDependency", b =>
@@ -3503,6 +3601,13 @@ namespace Callu.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("ActionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActionName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
@@ -3573,8 +3678,15 @@ namespace Callu.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ActionId");
+
                     b.HasIndex("NextRetryAt")
                         .HasFilter("\"Status\" = 'Retrying'");
+
+                    b.HasIndex("IncidentId", "AckType")
+                        .IsUnique()
+                        .HasDatabaseName("IX_WebhookDeliveries_ManualInFlight")
+                        .HasFilter("\"Status\" = 'Pending' AND \"ActionId\" IS NOT NULL");
 
                     b.HasIndex("IncidentId", "AttemptedAt");
 
@@ -4346,6 +4458,17 @@ namespace Callu.Infrastructure.Migrations
                     b.Navigation("WebhookTemplate");
                 });
 
+            modelBuilder.Entity("Callu.Domain.Entities.ServiceAction", b =>
+                {
+                    b.HasOne("Callu.Domain.Entities.Service", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Service");
+                });
+
             modelBuilder.Entity("Callu.Domain.Entities.ServiceDependency", b =>
                 {
                     b.HasOne("Callu.Domain.Entities.Service", "DependsOnService")
@@ -4446,6 +4569,14 @@ namespace Callu.Infrastructure.Migrations
                     b.Navigation("Integration");
 
                     b.Navigation("Service");
+                });
+
+            modelBuilder.Entity("Callu.Domain.Entities.WebhookDelivery", b =>
+                {
+                    b.HasOne("Callu.Domain.Entities.ServiceAction", null)
+                        .WithMany()
+                        .HasForeignKey("ActionId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

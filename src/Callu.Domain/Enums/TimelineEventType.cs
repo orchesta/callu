@@ -20,5 +20,7 @@ public enum TimelineEventType
     CallFailed = 13,
     CallAcknowledged = 14,
     CallEscalated = 15,
-    ConferenceCreated = 16
+    ConferenceCreated = 16,
+    ActionExecuted = 17,
+    ActionFailed = 18
 }

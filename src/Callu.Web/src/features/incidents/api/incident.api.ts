@@ -11,6 +11,8 @@ import type {
     IncidentFilter,
     IncidentCreateResult,
     WebhookDeliveryDto,
+    ServiceActionDto,
+    ServiceActionExecutionResult,
     IncidentEscalation,
     CreateIncidentRequest,
     UpdateIncidentRequest,
@@ -117,4 +119,12 @@ export const incidentApi = {
     /** The escalation run: every step, which one it is on, and when the next is due. */
     getEscalation: (id: string) =>
         apiClient.get<IncidentEscalation>(`${BASE}/${id}/escalation`),
+
+    /** Manual actions defined on a service, runnable from the incident screen. */
+    getServiceActions: (serviceId: string) =>
+        apiClient.get<ServiceActionDto[]>(`/api/v1/services/${serviceId}/actions`),
+
+    /** Execute a service action for this incident. Sent once, never retried. */
+    executeAction: (incidentId: string, actionId: string) =>
+        apiClient.post<ServiceActionExecutionResult>(`${BASE}/${incidentId}/actions/${actionId}/execute`),
 };
