@@ -103,14 +103,22 @@ export function ServiceDetail() {
   const [ackContentType, setAckContentType] = useState("application/json");
   const [ackHeaders, setAckHeaders] = useState<{ key: string; value: string }[]>([]);
   const [ackPayloadTemplate, setAckPayloadTemplate] = useState("");
+  const [ackEvents, setAckEvents] = useState<number | null>(null);
+  const [ackSecret, setAckSecret] = useState("");
+  const [ackSecretCleared, setAckSecretCleared] = useState(false);
+  const [ackSignatureHeader, setAckSignatureHeader] = useState("");
 
   const [depServiceId, setDepServiceId] = useState("");
   const [depType, setDepType] = useState("Upstream");
   const [depCriticality, setDepCriticality] = useState("High");
   const [depDescription, setDepDescription] = useState("");
 
+  // Hydrate only when a different service arrives; a same-id background refetch
+  // must not wipe in-progress edits.
+  const hydratedForId = useRef<string | null>(null);
   useEffect(() => {
-    if (service) {
+    if (service && hydratedForId.current !== service.id) {
+      hydratedForId.current = service.id;
       setServiceName(service.name);
       setDescription(service.description ?? "");
       setServiceType(service.type || "Api");
@@ -123,6 +131,10 @@ export function ServiceDetail() {
       setAckContentType(service.ackContentType || "application/json");
       setAckPayloadTemplate(service.ackPayloadTemplate ?? "");
       setAckHeaders(parseAckHeaders(service.ackHeaders));
+      setAckEvents(service.ackEvents ?? null);
+      setAckSecret("");
+      setAckSecretCleared(false);
+      setAckSignatureHeader(service.ackSignatureHeader ?? "");
     }
   }, [service]);
 
@@ -134,17 +146,23 @@ export function ServiceDetail() {
       id,
       data: {
         name: serviceName,
-        description: description || undefined,
+        description,
         type: serviceType,
         environment,
         status,
         teamId: selectedTeamId || undefined,
         ackEnabled,
-        ackUrl: ackUrl || undefined,
+        ackUrl,
         ackHttpMethod,
         ackContentType,
-        ackHeaders: headersJson,
-        ackPayloadTemplate: ackPayloadTemplate || undefined,
+        // Text fields travel as-is: the API keeps on omitted and clears on empty string.
+        ackHeaders: headersJson ?? "",
+        ackPayloadTemplate,
+        // Untouched checkboxes stay null so the stored value is preserved.
+        ackEvents: ackEvents ?? undefined,
+        // Secret is tri-state: omitted keeps it, a typed value replaces it, "" clears it.
+        ackSecret: ackSecretCleared ? "" : ackSecret || undefined,
+        ackSignatureHeader,
       },
     });
   };
@@ -292,7 +310,7 @@ export function ServiceDetail() {
             </TabsTrigger>
             <TabsTrigger value="ack-settings">
               <Send className="w-4 h-4 mr-2" />
-              {t("services.tabAckSettings")}
+              {t("serviceActions.tabTitle")}
             </TabsTrigger>
           </TabsList>
 
@@ -483,6 +501,7 @@ export function ServiceDetail() {
 
           <AckSettingsTab
             formId={formId}
+            serviceId={id!}
             ackEnabled={ackEnabled}
             setAckEnabled={setAckEnabled}
             ackUrl={ackUrl}
@@ -495,6 +514,14 @@ export function ServiceDetail() {
             setAckHeaders={setAckHeaders}
             ackPayloadTemplate={ackPayloadTemplate}
             setAckPayloadTemplate={setAckPayloadTemplate}
+            ackEvents={ackEvents}
+            setAckEvents={setAckEvents}
+            ackSecret={ackSecret}
+            setAckSecret={setAckSecret}
+            setAckSecretCleared={setAckSecretCleared}
+            ackSignatureHeader={ackSignatureHeader}
+            setAckSignatureHeader={setAckSignatureHeader}
+            hasAckSecret={service.hasAckSecret ?? false}
           />
         </Tabs>
       </div>

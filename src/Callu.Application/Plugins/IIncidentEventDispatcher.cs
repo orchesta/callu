@@ -23,4 +23,8 @@ public interface IIncidentEventDispatcher
     /// <summary>Send ACK to an external system using the service's inline ACK configuration.</summary>
     /// <returns>How the attempt landed in the <c>WebhookDelivery</c> ledger; this method does not throw.</returns>
     Task<AckDispatchOutcome> SendServiceAckAsync(Guid incidentId, string ackType, CancellationToken cancellationToken = default);
+
+    /// <summary>Runs an operator-defined action once, synchronously; exactly one attempt, never retried.</summary>
+    Task<Callu.Shared.Models.Services.ServiceActionExecutionResult> ExecuteManualActionAsync(
+        Guid incidentId, Guid actionId, string actorUserId, CancellationToken cancellationToken = default);
 }

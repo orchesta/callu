@@ -3,6 +3,40 @@
 Notable, user-facing changes to Callu. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.0 — 2026-08-12
+
+- **Service actions**: a service can now carry operator-defined outbound HTTP actions
+  ("Restart Redis"-style buttons) that a responder runs from the incident page, under
+  the same team scope as every other incident operation. Each run is sent exactly
+  once — never retried — behind a confirm dialog, a server-side double-click guard
+  backed by a unique in-flight index (409), and a new `CanExecuteServiceActions`
+  permission seeded to Admin, TeamLead and Member. Every run is recorded in the
+  delivery ledger, with timeline and audit entries written alongside it best-effort;
+  the synchronous result (HTTP status, clipped response) is shown to the responder.
+  Configured on the service's Actions tab (`CanManageServices`), at most 50 per
+  service; URLs and payload templates are validated at save time, and custom header
+  values are returned only to service managers.
+- **The ACK callback can now fire on more lifecycle events**: created, acknowledged,
+  resolved, closed and reopened, selectable per service. Existing configurations keep
+  firing exactly as before (acknowledged + resolved) with no migration or operator step.
+- **ACK callbacks now fire from every path that changes incident state**: maintenance-window
+  auto-acknowledge, the generic incident update endpoint, reassignment that implicitly
+  acknowledges, and phone acknowledgements (keypress or conference start) previously
+  told the alert source nothing.
+- The ACK callback can sign with a dedicated outbound secret (`AckSecret`); when unset,
+  the previous behavior — signing with the inbound webhook secret — is unchanged.
+- A broken ACK payload template and an exhausted retry chain are no longer silent: both
+  write a terminal Failed delivery row, a timeline entry and an audit row. Payload
+  templates and ACK URLs are validated when the configuration is saved, not first
+  discovered at send time.
+- ACK configuration can be set when creating a service, and every ACK field is now
+  validated to its column bounds (over-long values get a 400 instead of a 500).
+- **Partial service updates no longer erase omitted fields.** `PUT /api/v1/services/{id}`
+  now treats an omitted or null field as "leave unchanged" (an empty string clears
+  nullable text fields). Previously a partial body silently nulled the ACK configuration
+  and flipped `isPublic`. The one deliberate exception: an omitted `teamId` still clears
+  the team assignment, which is how the UI removes a team.
+
 ## 1.1.0 — 2026-08-11
 
 - **Applications**: inbound webhooks and webhook templates moved from Settings to their

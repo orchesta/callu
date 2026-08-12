@@ -79,8 +79,16 @@ public static class MappingConfig
 
     private static void ConfigureServiceMappings()
     {
-        TypeAdapterConfig<ServiceEntity, ServiceDto>.NewConfig();
+        TypeAdapterConfig<ServiceEntity, ServiceDto>.NewConfig()
+            .Map(dest => dest.AckEvents, src => (int?)src.AckEvents)
+            .Map(dest => dest.HasAckSecret, src => !string.IsNullOrEmpty(src.AckSecret));
         TypeAdapterConfig<ServiceEntity, ServiceListDto>.NewConfig();
+
+        // Omitted/null request fields leave the stored value untouched; an empty string clears.
+        TypeAdapterConfig<CreateServiceRequest, ServiceEntity>.NewConfig()
+            .IgnoreNullValues(true);
+        TypeAdapterConfig<UpdateServiceRequest, ServiceEntity>.NewConfig()
+            .IgnoreNullValues(true);
 
         TypeAdapterConfig<ServiceDependency, ServiceDependencyDto>.NewConfig();
     }

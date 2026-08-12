@@ -29,6 +29,8 @@ internal static class CoreServicesModule
 
         services.AddScoped<Application.Services.IServiceManagementService, Services.ServiceManagementService>();
 
+        services.AddScoped<Application.Services.IServiceActionService, Services.ServiceActionService>();
+
         services.AddScoped<Application.Services.IServiceCatalogService, Services.ServiceCatalogService>();
 
         services.AddScoped<Application.Services.ICallLogService, Services.CallLogService>();

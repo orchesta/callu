@@ -187,7 +187,7 @@ services:
   # NOT exposed to host — only accessible via nginx (web).
   # All periodic jobs run in callu-worker (required) — the API hosts no background timers.
   callu-api:
-    image: orchestalabs/callu-api:1.1.0
+    image: orchestalabs/callu-api:1.2.0
     container_name: callu-api
     restart: unless-stopped
     logging: *default-logging
@@ -290,7 +290,7 @@ services:
 
   # ─── Background worker (escalations, notification retries, health checks, provider registry) ───
   callu-worker:
-    image: orchestalabs/callu-worker:1.1.0
+    image: orchestalabs/callu-worker:1.2.0
     container_name: callu-worker
     restart: unless-stopped
     logging: *default-logging
@@ -380,7 +380,7 @@ services:
   # ─── Web UI (nginx) ────────────────────────────────────────
   # Single entry point: serves SPA + proxies /api/* to API.
   callu-web:
-    image: orchestalabs/callu-web:1.1.0
+    image: orchestalabs/callu-web:1.2.0
     container_name: callu-web
     restart: unless-stopped
     logging: *default-logging

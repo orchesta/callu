@@ -9,6 +9,13 @@ namespace Callu.Domain.Entities;
 /// </summary>
 public class Service : BaseEntity
 {
+    public const int MaxAckUrlLength = 500;
+    public const int MaxAckHttpMethodLength = 10;
+    public const int MaxAckContentTypeLength = 50;
+    public const int MaxAckHeadersLength = 4000;
+    public const int MaxAckPayloadTemplateLength = 8000;
+    public const int MaxAckSecretLength = 256;
+    public const int MaxAckSignatureHeaderLength = 100;
 
     /// <summary>
     /// Service name
@@ -111,19 +118,19 @@ public class Service : BaseEntity
     /// <summary>
     /// URL to send ACK requests to
     /// </summary>
-    [StringLength(500)]
+    [StringLength(MaxAckUrlLength)]
     public string? AckUrl { get; set; }
-    
+
     /// <summary>
     /// HTTP method for ACK request (POST, PUT, PATCH)
     /// </summary>
-    [StringLength(10)]
+    [StringLength(MaxAckHttpMethodLength)]
     public string AckHttpMethod { get; set; } = "POST";
-    
+
     /// <summary>
     /// Content-Type header for ACK request
     /// </summary>
-    [StringLength(50)]
+    [StringLength(MaxAckContentTypeLength)]
     public string AckContentType { get; set; } = "application/json";
     
     /// <summary>
@@ -135,6 +142,23 @@ public class Service : BaseEntity
     /// Scriban template for ACK payload body
     /// </summary>
     public string? AckPayloadTemplate { get; set; }
+
+    /// <summary>
+    /// Lifecycle events the ACK callback fires on; null means acknowledged and resolved.
+    /// </summary>
+    public ServiceAckEvents? AckEvents { get; set; }
+
+    /// <summary>
+    /// HMAC secret for signing outbound ACK requests; null falls back to WebhookSecret.
+    /// </summary>
+    [StringLength(MaxAckSecretLength)]
+    public string? AckSecret { get; set; }
+
+    /// <summary>
+    /// Header name carrying the outbound ACK signature.
+    /// </summary>
+    [StringLength(MaxAckSignatureHeaderLength)]
+    public string? AckSignatureHeader { get; set; }
 
     /// <summary>
     /// Is webhook receiving enabled for this service (computed from ProviderId)

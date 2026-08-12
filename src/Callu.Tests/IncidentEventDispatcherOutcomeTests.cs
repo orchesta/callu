@@ -67,9 +67,9 @@ public class IncidentEventDispatcherOutcomeTests : IDisposable
         Assert.Empty(await Rows());
     }
 
-    /// <summary>A template that does not parse will not parse on the next attempt either.</summary>
+    /// <summary>A template that does not parse will not parse on the next attempt either, so it is a terminal Failed delivery the operator can see.</summary>
     [Fact]
-    public async Task ABrokenTemplate_IsSkipped()
+    public async Task ABrokenTemplate_IsRecordedAsTerminallyFailed()
     {
         // Scriban is forgiving — an unterminated `{{ incident.id` parses fine — so the template is
         // broken in a way it actually rejects: a block that is never closed.
@@ -79,8 +79,12 @@ public class IncidentEventDispatcherOutcomeTests : IDisposable
         var outcome = await Dispatcher(Service(s => s.AckPayloadTemplate = "{{ if incident.id }}{\"id\":\"{{ incident.id }}\"}"))
             .SendServiceAckAsync(IncidentId, "acknowledge");
 
-        Assert.Equal(AckDispatchOutcome.Skipped, outcome);
-        Assert.Empty(await Rows());
+        Assert.Equal(AckDispatchOutcome.Recorded, outcome);
+
+        var row = Assert.Single(await Rows());
+        Assert.Equal(WebhookDeliveryStatus.Failed, row.Status);
+        Assert.Null(row.NextRetryAt);
+        Assert.Contains("Template parse error", row.Error);
     }
 
     /// <summary>

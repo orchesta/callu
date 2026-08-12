@@ -17,9 +17,16 @@ public class WebhookDelivery : BaseEntity
     [Required, StringLength(500)]
     public string Url { get; set; } = string.Empty;
 
-    /// <summary>"acknowledge" | "resolve" — passed through from EscalationOrchestrator.</summary>
+    /// <summary>Lifecycle ack type (created/acknowledge/resolve/closed/reopened) or a manual-action chain key ("manual:{actionId}").</summary>
     [StringLength(50)]
     public string? AckType { get; set; }
+
+    /// <summary>Manual action behind this attempt; null for lifecycle-event callbacks.</summary>
+    public Guid? ActionId { get; set; }
+
+    /// <summary>Action name snapshot, so the row stays readable after a rename or delete.</summary>
+    [StringLength(100)]
+    public string? ActionName { get; set; }
 
     public int? HttpStatus { get; set; }
 

@@ -60,5 +60,9 @@ public enum AuditAction
     ConferenceInviteReachedNobody = 41,
 
     /// <summary>A page the provider accepted, for which no call was ever recorded.</summary>
-    VoiceCallNeverConfirmed = 42
+    VoiceCallNeverConfirmed = 42,
+
+    // Outbound service actions and ACK callbacks.
+    ServiceActionExecuted = 43,
+    ServiceActionFailed = 44
 }

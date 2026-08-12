@@ -14,6 +14,7 @@ public sealed class CalluMetrics
     private readonly Counter<long> _notificationsFailed;
     private readonly Counter<long> _escalationStepsTriggered;
     private readonly Counter<long> _escalationTriggersDeadLettered;
+    private readonly Counter<long> _serviceActionExecutions;
     private readonly Histogram<double> _notificationLatency;
     private readonly Histogram<double> _webhookProcessingDuration;
     private readonly Histogram<double> _escalationProcessingDuration;
@@ -46,6 +47,11 @@ public sealed class CalluMetrics
             "callu.escalations.triggers_dead_lettered",
             "triggers",
             "Escalation triggers that dead-lettered after every retry, i.e. paging never started");
+
+        _serviceActionExecutions = meter.CreateCounter<long>(
+            "callu.service_actions.executions",
+            "executions",
+            "Outbound ACK callbacks and manual service actions by trigger kind and outcome");
 
         _notificationLatency = meter.CreateHistogram<double>(
             "callu.notifications.latency",
@@ -90,6 +96,12 @@ public sealed class CalluMetrics
         => _webhookProcessingDuration.Record(milliseconds);
 
     public void EscalationTriggerDeadLettered() => _escalationTriggersDeadLettered.Add(1);
+
+    /// <summary>Counts one action execution; both tags are bounded vocabularies, never raw error text.</summary>
+    public void ServiceActionExecution(string triggerKind, string outcome)
+        => _serviceActionExecutions.Add(1,
+            new KeyValuePair<string, object?>("trigger_kind", triggerKind),
+            new KeyValuePair<string, object?>("outcome", outcome));
 
     public void RecordEscalationDuration(double milliseconds)
         => _escalationProcessingDuration.Record(milliseconds);

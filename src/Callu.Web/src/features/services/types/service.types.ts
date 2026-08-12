@@ -64,6 +64,10 @@ export interface ServiceDto {
   ackContentType: string;
   ackHeaders?: string;
   ackPayloadTemplate?: string;
+  /** Null means the legacy default pair: acknowledge + resolve. */
+  ackEvents?: number | null;
+  hasAckSecret?: boolean;
+  ackSignatureHeader?: string | null;
 }
 
 /** Lightweight service for list views (BE returns full ServiceDto) */
@@ -125,6 +129,57 @@ export interface UpdateServiceRequest {
   ackContentType?: string;
   ackHeaders?: string;
   ackPayloadTemplate?: string;
+  ackEvents?: number;
+  ackSecret?: string;
+  ackSignatureHeader?: string;
+}
+
+/** Mirrors Callu.Shared.Models.Services.ServiceActionDto */
+export interface ServiceActionDto {
+  id: string;
+  serviceId: string;
+  name: string;
+  description?: string;
+  url: string;
+  httpMethod: string;
+  contentType: string;
+  headersJson?: string;
+  payloadTemplate?: string;
+  hasSecret: boolean;
+  signatureHeader?: string;
+  isEnabled: boolean;
+  displayOrder: number;
+  createdAt: string;
+}
+
+/** Mirrors Callu.Shared.Models.Services.CreateServiceActionRequest */
+export interface CreateServiceActionRequest {
+  name: string;
+  description?: string;
+  url: string;
+  httpMethod?: string;
+  contentType?: string;
+  headersJson?: string;
+  payloadTemplate?: string;
+  secret?: string;
+  signatureHeader?: string;
+  isEnabled?: boolean;
+  displayOrder?: number;
+}
+
+/** Mirrors Callu.Shared.Models.Services.UpdateServiceActionRequest */
+export interface UpdateServiceActionRequest {
+  name?: string;
+  description?: string;
+  url?: string;
+  httpMethod?: string;
+  contentType?: string;
+  headersJson?: string;
+  payloadTemplate?: string;
+  secret?: string;
+  signatureHeader?: string;
+  isEnabled?: boolean;
+  displayOrder?: number;
 }
 
 /** Mirrors Callu.Shared.Models.Services.CreateServiceDependencyRequest */

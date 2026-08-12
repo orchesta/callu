@@ -21,4 +21,7 @@ public record UpdateServiceRequest
     public string? AckContentType { get; init; }
     public string? AckHeaders { get; init; }
     public string? AckPayloadTemplate { get; init; }
+    public int? AckEvents { get; init; }
+    public string? AckSecret { get; init; }
+    public string? AckSignatureHeader { get; init; }
 }

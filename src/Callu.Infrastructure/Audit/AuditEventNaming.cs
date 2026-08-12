@@ -55,6 +55,7 @@ public static partial class AuditEventNaming
         AuditAction.VoiceCallLost => "voice-call-lost",
         AuditAction.VoiceCallNeverConfirmed => "voice-call-never-confirmed",
         AuditAction.ConferenceInviteReachedNobody => "conference-invite-reached-nobody",
+        AuditAction.ServiceActionExecuted or AuditAction.ServiceActionFailed => "action-execute",
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "No event name for this action."),
     };
 
@@ -79,6 +80,7 @@ public static partial class AuditEventNaming
             or AuditAction.VoiceCallLost
             or AuditAction.VoiceCallNeverConfirmed
             or AuditAction.ConferenceInviteReachedNobody
+            or AuditAction.ServiceActionFailed
             or AuditAction.Rejected => AuditOutcome.Failure,
         AuditAction.EscalationDispatchPartiallyFailed
             or AuditAction.EscalationChannelsPartiallySilent

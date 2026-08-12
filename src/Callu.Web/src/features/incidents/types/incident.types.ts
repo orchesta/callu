@@ -98,12 +98,39 @@ export interface WebhookDeliveryDto {
   serviceId?: string;
   url: string;
   ackType?: string;
+  /** Set when the delivery came from a manually run service action rather than an ACK callback. */
+  actionName?: string | null;
   httpStatus?: number;
   error?: string;
   attemptCount: number;
   attemptedAt: string;
   nextRetryAt?: string;
   status: 'Pending' | 'Succeeded' | 'Failed' | 'Retrying';
+  responseBodySample?: string;
+}
+
+/** BE: ServiceActionDto — a manual action defined on the incident's service. */
+export interface ServiceActionDto {
+  id: string;
+  serviceId: string;
+  name: string;
+  description?: string;
+  url: string;
+  httpMethod: string;
+  contentType: string;
+  hasSecret: boolean;
+  signatureHeader?: string;
+  isEnabled: boolean;
+  displayOrder: number;
+  createdAt: string;
+}
+
+/** BE: result of POST /incidents/{id}/actions/{actionId}/execute. */
+export interface ServiceActionExecutionResult {
+  outcome: 'succeeded' | 'failed';
+  deliveryId?: string;
+  httpStatus?: number;
+  error?: string;
   responseBodySample?: string;
 }
 

@@ -30,4 +30,8 @@ public record ServiceDto
     public string AckContentType { get; init; } = "application/json";
     public string? AckHeaders { get; init; }
     public string? AckPayloadTemplate { get; init; }
+    /// <summary>Lifecycle-event flags the ACK callback fires on; null means acknowledged and resolved.</summary>
+    public int? AckEvents { get; init; }
+    public bool HasAckSecret { get; init; }
+    public string? AckSignatureHeader { get; init; }
 }

@@ -68,6 +68,7 @@ import { useCreateConferenceRoom } from "@/features/conference/hooks/use-confere
 import type { IncidentNoteDto, IncidentTimelineEvent } from "../types/incident.types";
 import { IncidentEscalationCard } from "./escalation-ladder";
 import { LifecycleStrip } from "./lifecycle-strip";
+import { ServiceActionsCard } from "./service-actions-card";
 import {
   canAcknowledgeIncidents,
   canManageIncidents,
@@ -101,6 +102,8 @@ const timelineIcons: Record<string, { icon: React.ComponentType<{ className?: st
   callconnected: { icon: Phone, color: "text-success-500" },
   callfailed: { icon: Phone, color: "text-error-500" },
   conferencecreated: { icon: Video, color: "text-brand-500" },
+  actionexecuted: { icon: Zap, color: "text-brand-500" },
+  actionfailed: { icon: AlertCircle, color: "text-error-500" },
 };
 
 function getTimelineIcon(type: string) {
@@ -870,6 +873,8 @@ export function IncidentDetail() {
             )}
           </Card>
 
+          <ServiceActionsCard incidentId={id} serviceId={incident.serviceId} />
+
           {webhookDeliveries.length > 0 && (
             <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -890,7 +895,7 @@ export function IncidentDetail() {
                           {d.status}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {d.ackType ?? "?"} · attempt {d.attemptCount}
+                          {d.actionName ?? d.ackType ?? "?"} · attempt {d.attemptCount}
                           {d.httpStatus != null && ` · HTTP ${d.httpStatus}`}
                         </span>
                         <span className="text-[10px] text-muted-foreground ml-auto">

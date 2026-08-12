@@ -375,12 +375,19 @@ public class IncidentService(
                 "Incident {IncidentId} auto-acknowledged at creation by maintenance window for service {ServiceId}",
                 dto.Id, request.ServiceId);
 
+        await eventDispatcher.SendServiceAckAsync(dto.Id, "created", CancellationToken.None);
+        // A maintenance-window auto-ack is still an acknowledgement the alert source should hear about.
+        if (autoAcknowledge)
+            await eventDispatcher.SendServiceAckAsync(dto.Id, "acknowledge", CancellationToken.None);
+
         await BroadcastLifecycleAsync(dto.Id, autoAcknowledge ? "Acknowledged" : "Open", cancellationToken);
         return new IncidentCreateResult { Outcome = IncidentCreateOutcome.Created, Incident = dto };
     }
 
     public async Task UpdateIncidentAsync(Guid incidentId, UpdateIncidentRequest request, CancellationToken cancellationToken = default)
     {
+        IncidentStatus? transitionedFrom = null;
+        IncidentStatus? transitionedTo = null;
         try
         {
         await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -442,6 +449,9 @@ public class IncidentService(
                     Description = $"Status changed from {statusBefore} to {incident.Status}",
                     ActorUserId = Actor()
                 }, cancellationToken);
+
+                transitionedFrom = statusBefore;
+                transitionedTo = incident.Status;
             }
 
             var changed = Diff(before, Snapshot(incident));
@@ -464,7 +474,32 @@ public class IncidentService(
             throw new ConflictException("Incident was modified by another user. Please retry.");
         }
 
+        // A transition driven through this generic endpoint fires the same ACK callback the
+        // dedicated endpoint would.
+        if (transitionedTo is { } to && AckTypeForTransition(transitionedFrom, to) is { } ackType)
+            await eventDispatcher.SendServiceAckAsync(incidentId, ackType, CancellationToken.None);
+
         await BroadcastLifecycleAsync(incidentId, "Updated", cancellationToken);
+    }
+
+    private static string? AckTypeForTransition(IncidentStatus? from, IncidentStatus to) => to switch
+    {
+        IncidentStatus.Acknowledged => "acknowledge",
+        // Moving straight from Open into Investigating acknowledges the incident as a side effect.
+        IncidentStatus.Investigating when from == IncidentStatus.Open => "acknowledge",
+        IncidentStatus.Resolved => "resolve",
+        IncidentStatus.Closed => "closed",
+        IncidentStatus.Open => "reopened",
+        _ => null,
+    };
+
+    public async Task<Callu.Shared.Models.Services.ServiceActionExecutionResult> ExecuteServiceActionAsync(
+        Guid incidentId, Guid actionId, string userId, CancellationToken cancellationToken = default)
+    {
+        // Same team scope as every other incident mutation: out of scope reads as not found.
+        await FindIncidentForMutationAsync(incidentId, cancellationToken);
+
+        return await eventDispatcher.ExecuteManualActionAsync(incidentId, actionId, userId, cancellationToken);
     }
 
     public async Task AcknowledgeIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default)
@@ -522,7 +557,7 @@ public class IncidentService(
             throw new ConflictException("Incident was modified by another user. Please retry.");
         }
 
-        await eventDispatcher.SendServiceAckAsync(incidentId, "acknowledge", cancellationToken);
+        await eventDispatcher.SendServiceAckAsync(incidentId, "acknowledge", CancellationToken.None);
 
         await TryDispatchOrgNotificationAsync(incidentId, NotificationChannelDispatchEvent.IncidentAcknowledged, cancellationToken);
         await BroadcastLifecycleAsync(incidentId, "Acknowledged", cancellationToken);
@@ -578,7 +613,7 @@ public class IncidentService(
             throw new ConflictException("Incident was modified by another user. Please retry.");
         }
 
-        await eventDispatcher.SendServiceAckAsync(incidentId, "resolve", cancellationToken);
+        await eventDispatcher.SendServiceAckAsync(incidentId, "resolve", CancellationToken.None);
 
         await TryDispatchOrgNotificationAsync(incidentId, NotificationChannelDispatchEvent.IncidentResolved, cancellationToken);
         await BroadcastLifecycleAsync(incidentId, "Resolved", cancellationToken);
@@ -621,6 +656,8 @@ public class IncidentService(
         {
             throw new ConflictException("Incident was modified by another user. Please retry.");
         }
+
+        await eventDispatcher.SendServiceAckAsync(incidentId, "closed", CancellationToken.None);
 
         await TryDispatchOrgNotificationAsync(incidentId, NotificationChannelDispatchEvent.IncidentClosed, cancellationToken);
         await BroadcastLifecycleAsync(incidentId, "Closed", cancellationToken);
@@ -703,6 +740,8 @@ public class IncidentService(
                 logger.LogError(auditEx, "Failed to persist DispatchFailed audit for reopened incident {IncidentId}", incidentId);
             }
         }
+
+        await eventDispatcher.SendServiceAckAsync(incidentId, "reopened", CancellationToken.None);
 
         await TryDispatchOrgNotificationAsync(incidentId, NotificationChannelDispatchEvent.IncidentReopened, cancellationToken);
         await BroadcastLifecycleAsync(incidentId, "Reopened", cancellationToken);
@@ -849,6 +888,7 @@ public class IncidentService(
 
     public async Task ReassignIncidentAsync(Guid incidentId, string targetUserId, string assignedBy, CancellationToken cancellationToken = default)
     {
+        var acknowledgedByReassign = false;
         try
         {
         await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -864,6 +904,7 @@ public class IncidentService(
             if (incident.Status == IncidentStatus.Open)
             {
                 incident.Acknowledge(targetUserId);
+                acknowledgedByReassign = true;
             }
 
             incident.UpdatedAt = DateTime.UtcNow;
@@ -891,6 +932,9 @@ public class IncidentService(
         {
             throw new ConflictException("Incident was modified by another user. Please retry.");
         }
+
+        if (acknowledgedByReassign)
+            await eventDispatcher.SendServiceAckAsync(incidentId, "acknowledge", CancellationToken.None);
     }
 
     #region Private Helpers
@@ -1096,7 +1140,8 @@ public class IncidentService(
                 d.AttemptedAt,
                 d.NextRetryAt,
                 d.Status,
-                d.ResponseBodySample))
+                d.ResponseBodySample,
+                d.ActionName))
             .ToListAsync(cancellationToken);
 
         return rows;

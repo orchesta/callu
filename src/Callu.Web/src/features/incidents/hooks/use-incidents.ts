@@ -23,6 +23,12 @@ export const incidentKeys = {
   timeline: (id: string) => [...incidentKeys.detail(id), 'timeline'] as const,
   conference: (id: string) => [...incidentKeys.detail(id), 'conference'] as const,
   escalation: (id: string) => [...incidentKeys.detail(id), 'escalation'] as const,
+  webhookDeliveries: (id: string) => [...incidentKeys.detail(id), 'webhook-deliveries'] as const,
+};
+
+/** Same key shape the services feature uses, so either side's invalidation reaches both. */
+export const serviceActionKeys = {
+  list: (serviceId: string) => ['service-actions', serviceId] as const,
 };
 
 export const incidentQueries = {
@@ -79,7 +85,7 @@ export function useIncidentConference(incidentId: string) {
 /** Outbound webhook ACK delivery history; refetched on the retry job's cadence so status transitions appear without a manual refresh. */
 export function useWebhookDeliveries(incidentId: string, limit = 20) {
   return useQuery({
-    queryKey: [...incidentKeys.detail(incidentId), 'webhook-deliveries'],
+    queryKey: incidentKeys.webhookDeliveries(incidentId),
     queryFn: async () => {
       const resp = await incidentApi.getWebhookDeliveries(incidentId, limit);
       return resp.data ?? [];
@@ -88,6 +94,31 @@ export function useWebhookDeliveries(incidentId: string, limit = 20) {
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
+}
+
+/** Manual actions defined on the incident's service. */
+export function useServiceActions(serviceId: string) {
+  return useQuery(
+    apiQueryOptions(serviceActionKeys.list(serviceId), () => incidentApi.getServiceActions(serviceId), {
+      enabled: !!serviceId,
+    }),
+  );
+}
+
+/** Executes a service action; the caller renders the outcome, so no toast fires here. */
+export function useExecuteServiceAction(incidentId: string) {
+  const qc = useQueryClient();
+  return useApiMutation(
+    (actionId: string) => incidentApi.executeAction(incidentId, actionId),
+    {
+      successMessage: false,
+      errorMessage: false,
+      onSettled: () => {
+        qc.invalidateQueries({ queryKey: incidentKeys.webhookDeliveries(incidentId) });
+        qc.invalidateQueries({ queryKey: incidentKeys.timeline(incidentId) });
+      },
+    },
+  );
 }
 
 /** The escalation run for an incident. */

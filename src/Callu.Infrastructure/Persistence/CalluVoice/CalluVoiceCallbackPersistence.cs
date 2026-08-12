@@ -157,9 +157,10 @@ public sealed class CalluVoiceCallbackPersistence(
         else if (outcome.EndsTheCall)
             ArmOrStopTheChain(callLog, incident, now);
 
+        var tookTheIncident = false;
         if (outcome.AcknowledgesTheIncident)
         {
-            await TakeTheIncidentAsync(context, incident, actor, recipient, outcome.Status, audit, timeline, cancellationToken);
+            tookTheIncident = await TakeTheIncidentAsync(context, incident, actor, recipient, outcome.Status, audit, timeline, cancellationToken);
         }
         else if (outcome.Status == CallStatus.Escalated)
         {
@@ -180,6 +181,11 @@ public sealed class CalluVoiceCallbackPersistence(
 
         await WriteAuditAsync(ticket.IncidentId, actor.UserId, audit, cancellationToken);
 
+        // A phone acknowledgement notifies the alert source exactly as a UI one; dispatched in the
+        // background because a live call is waiting on this response.
+        if (tookTheIncident)
+            DispatchPhoneAckInBackground(ticket.IncidentId);
+
         if (incidentWasTerminal) return CalluVoiceCallbackApplication.Applied;
 
         if (outcome.Status == CallStatus.Escalated)
@@ -188,6 +194,25 @@ public sealed class CalluVoiceCallbackPersistence(
             await BringTheResponderInAsync(ticket.IncidentId, actor, recipient, cancellationToken);
 
         return CalluVoiceCallbackApplication.Applied;
+    }
+
+    private void DispatchPhoneAckInBackground(Guid incidentId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = serviceProvider.CreateScope();
+                var dispatcher = scope.ServiceProvider.GetRequiredService<Callu.Application.Plugins.IIncidentEventDispatcher>();
+                await dispatcher.SendServiceAckAsync(incidentId, "acknowledge", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Could not dispatch the ACK callback for a phone acknowledgement on incident {IncidentId}",
+                    incidentId);
+            }
+        });
     }
 
     // ----------------------------------------------------------------------------- the call log
@@ -283,7 +308,7 @@ public sealed class CalluVoiceCallbackPersistence(
 
     // ----------------------------------------------------------------------------- the incident
 
-    private async Task TakeTheIncidentAsync(
+    private async Task<bool> TakeTheIncidentAsync(
         ApplicationDbContext context,
         Incident incident,
         Actor actor,
@@ -305,14 +330,16 @@ public sealed class CalluVoiceCallbackPersistence(
             timeline.Title = "Phone keypress ignored (incident already closed)";
             timeline.Description =
                 $"Late keypress from {recipient} — the incident was already {incident.Status}, so nothing changed.";
-            return;
+            return false;
         }
 
         var wasEscalating = incident.IsEscalationActive;
+        var acknowledged = false;
 
         if (incident.Status == IncidentStatus.Open)
         {
             incident.Acknowledge(actor.UserId ?? actor.DisplayName ?? "Phone Responder");
+            acknowledged = true;
             audit.Add((AuditAction.Acknowledged, "Status: Open", "Status: Acknowledged", how));
 
             // A keypress that owns the incident as a side effect still has to say so on its own line:
@@ -348,6 +375,8 @@ public sealed class CalluVoiceCallbackPersistence(
             logger.LogInformation(
                 "Escalation cancelled for incident {IncidentId}: a responder took it on the phone", incident.Id);
         }
+
+        return acknowledged;
     }
 
     // Tracked rather than ExecuteUpdate, so the stand-down commits with the acknowledgement itself.
