@@ -16,6 +16,7 @@ public sealed class AuditArchiveQuartzJob(
 {
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         if (!options.Value.Enabled) return;
 
         using var scope = scopeFactory.CreateScope();

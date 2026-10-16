@@ -82,6 +82,21 @@ public class AuditLog : BaseEntity
     [StringLength(MaxSpanIdLength)]
     public string? SpanId { get; set; }
 
+    /// <summary>W3C parent span id; only ever stored alongside a span id.</summary>
+    [StringLength(MaxSpanIdLength)]
+    public string? ParentSpanId { get; set; }
+
+    public const int MaxRequestMethodLength = 16;
+
+    /// <summary>OpenAuditModel request.method.</summary>
+    [StringLength(MaxRequestMethodLength)]
+    public string? RequestMethod { get; set; }
+
+    /// <summary>OpenAuditModel fragments only the writer knows, as JSON; null on rows written before 1.3.0.</summary>
+    // Null is meaningful: the sealer reads it as "written by an older build" and projects the row
+    // instead of trusting fields it never had (see the design, D11).
+    public string? Details { get; set; }
+
     /// <summary>Position in the tamper-evidence chain; null until the sealing job reaches this row.</summary>
     public long? Sequence { get; set; }
 
@@ -99,4 +114,12 @@ public class AuditLog : BaseEntity
     /// <summary>Chain hash of this entry, base64.</summary>
     [StringLength(64)]
     public string? RowHash { get; set; }
+
+    /// <summary>The OpenAuditModel 1.0 event for this row, as canonical text; null until the public chain reaches it.</summary>
+    // text, never jsonb: Postgres would reorder the keys, and the stored text has to be the hashed text.
+    public string? OamEvent { get; set; }
+
+    /// <summary>SHA-256 of OamEvent's digest input, lower-case hex.</summary>
+    [StringLength(64)]
+    public string? OamHash { get; set; }
 }

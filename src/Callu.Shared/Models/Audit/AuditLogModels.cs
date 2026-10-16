@@ -26,6 +26,9 @@ public class AuditLogDto
     public string? CorrelationId { get; set; }
     public string? TraceId { get; set; }
     public string? SpanId { get; set; }
+    public string? ParentSpanId { get; set; }
+    public string? RequestMethod { get; set; }
+    public string? Details { get; set; }
 
     /// <summary>Position in the tamper-evidence chain, null until the row is sealed.</summary>
     public long? Sequence { get; set; }

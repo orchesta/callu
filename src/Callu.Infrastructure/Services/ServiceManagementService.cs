@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Mapster;
 using Callu.Shared.Results;
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
@@ -25,7 +26,8 @@ public class ServiceManagementService(
     IUptimeCalculator uptimeCalculator,
     IIncidentService incidentService,
     Microsoft.Extensions.Options.IOptions<Configuration.CommunicationSettingsOptions> communicationSettings,
-    ILogger<ServiceManagementService> logger) : IServiceManagementService
+    ILogger<ServiceManagementService> logger,
+    ICurrentUserService? currentUser = null) : IServiceManagementService
 {
     public async Task<Result<ServiceDto>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -151,7 +153,7 @@ public class ServiceManagementService(
 
             // The trail records that a signing secret was set, never its value.
             var auditedCreate = dto with { AckSecret = Redact(dto.AckSecret) };
-            await auditLogService.LogAsync(null, AuditAction.Created, "Service", service.Id.ToString(), null, System.Text.Json.JsonSerializer.Serialize(auditedCreate), cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(currentUser?.UserId, AuditAction.Created, "Service", service.Id.ToString(), null, System.Text.Json.JsonSerializer.Serialize(auditedCreate), cancellationToken: cancellationToken);
 
             return Result.Success(service.Adapt<ServiceDto>());
         }, cancellationToken);
@@ -180,7 +182,7 @@ public class ServiceManagementService(
             service.UpdatedAt = DateTime.UtcNow;
 
             var auditedUpdate = dto with { AckSecret = Redact(dto.AckSecret) };
-            await auditLogService.LogAsync(null, AuditAction.Updated, "Service", id.ToString(), oldValues, System.Text.Json.JsonSerializer.Serialize(auditedUpdate), cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(currentUser?.UserId, AuditAction.Updated, "Service", id.ToString(), oldValues, System.Text.Json.JsonSerializer.Serialize(auditedUpdate), cancellationToken: cancellationToken);
 
             if (service.Status != oldStatus)
             {
@@ -209,7 +211,7 @@ public class ServiceManagementService(
             service.IsDeleted = true;
             service.UpdatedAt = DateTime.UtcNow;
 
-            await auditLogService.LogAsync(null, AuditAction.Deleted, "Service", id.ToString(), null, null, cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(currentUser?.UserId, AuditAction.Deleted, "Service", id.ToString(), null, null, cancellationToken: cancellationToken);
 
             return Result.Success();
         }, cancellationToken);
@@ -228,7 +230,7 @@ public class ServiceManagementService(
             service.Status = status;
             service.UpdatedAt = DateTime.UtcNow;
 
-            await auditLogService.LogAsync(null, AuditAction.Updated, "Service", id.ToString(), $"Status: {oldStatus}", $"Status: {status}", cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(currentUser?.UserId, AuditAction.Updated, "Service", id.ToString(), $"Status: {oldStatus}", $"Status: {status}", cancellationToken: cancellationToken);
 
             cascade = await cascadeEngine.PropagateAsync(id, status, cancellationToken);
             await SyncStatusPageComponentsAsync(id, status, cascade, cancellationToken);

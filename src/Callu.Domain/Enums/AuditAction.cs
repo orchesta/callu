@@ -64,5 +64,8 @@ public enum AuditAction
 
     // Outbound service actions and ACK callbacks.
     ServiceActionExecuted = 43,
-    ServiceActionFailed = 44
+    ServiceActionFailed = 44,
+
+    // Checkpoint publication.
+    PublishFailed = 45
 }

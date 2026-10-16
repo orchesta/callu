@@ -21,6 +21,7 @@ public sealed class ConferenceRoomExpiryQuartzJob(
 
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 

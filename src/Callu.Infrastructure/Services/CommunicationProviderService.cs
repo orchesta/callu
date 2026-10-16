@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Providers;
@@ -27,6 +28,7 @@ public class CommunicationProviderService : ICommunicationProviderService
     private readonly ProviderSecretProtector _secretProtector;
     private readonly IAuditLogService _auditLogService;
     private readonly ILogger<CommunicationProviderService> _logger;
+    private readonly ICurrentUserService? _currentUser;
 
     public CommunicationProviderService(
         ICommunicationProviderRepository providerRepo,
@@ -35,7 +37,8 @@ public class CommunicationProviderService : ICommunicationProviderService
         ICommunicationProviderRegistry registry,
         ProviderSecretProtector secretProtector,
         IAuditLogService auditLogService,
-        ILogger<CommunicationProviderService> logger)
+        ILogger<CommunicationProviderService> logger,
+        ICurrentUserService? currentUser = null)
     {
         _providerRepo = providerRepo;
         _routeRepo = routeRepo;
@@ -44,6 +47,7 @@ public class CommunicationProviderService : ICommunicationProviderService
         _secretProtector = secretProtector;
         _auditLogService = auditLogService;
         _logger = logger;
+        _currentUser = currentUser;
     }
 
     /// <summary>Names the secret keys a request touched, never their values.</summary>
@@ -128,7 +132,7 @@ public class CommunicationProviderService : ICommunicationProviderService
             await _providerRepo.AddAsync(provider, cancellationToken);
             
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "CommunicationProvider", provider.Id.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "CommunicationProvider", provider.Id.ToString(),
                 newValues: $"name={provider.Name}; type={provider.ProviderType}; priority={provider.Priority}",
                 description: DescribeSecretChange(request.Config, provider.ProviderType),
                 cancellationToken: cancellationToken);
@@ -188,7 +192,7 @@ public class CommunicationProviderService : ICommunicationProviderService
             }
 
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "CommunicationProvider", provider.Id.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "CommunicationProvider", provider.Id.ToString(),
                 oldValues: before,
                 newValues: $"name={provider.Name}; enabled={provider.IsEnabled}; priority={provider.Priority}",
                 description: DescribeSecretChange(request.Config, provider.ProviderType),
@@ -225,7 +229,7 @@ public class CommunicationProviderService : ICommunicationProviderService
             provider.IsDeleted = true;
 
             await _auditLogService.LogAsync(
-                null, AuditAction.Deleted, "CommunicationProvider", provider.Id.ToString(),
+                _currentUser?.UserId, AuditAction.Deleted, "CommunicationProvider", provider.Id.ToString(),
                 oldValues: $"name={provider.Name}; type={provider.ProviderType}",
                 cancellationToken: cancellationToken);
 
@@ -504,7 +508,7 @@ public class CommunicationProviderService : ICommunicationProviderService
             + "Calls will use whatever carrier the voice service already had.", outcome.Error);
 
         await _auditLogService.LogAsync(
-            null, AuditAction.SettingsChanged, "CommunicationProvider", providerId.ToString(),
+            _currentUser?.UserId, AuditAction.SettingsChanged, "CommunicationProvider", providerId.ToString(),
             description: $"Carrier was NOT applied to the voice service: {Clip(outcome.Error)}",
             cancellationToken: cancellationToken);
     }
@@ -610,7 +614,7 @@ public class CommunicationProviderService : ICommunicationProviderService
             }
 
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "CapabilityRoute", capability.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "CapabilityRoute", capability.ToString(),
                 oldValues: existing.Count == 0 ? "unrouted" : string.Join(", ", existing.Select(e => e.ProviderId)),
                 newValues: target is null ? "unrouted" : $"{target.Name} ({target.ProviderType})",
                 description: target is null

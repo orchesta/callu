@@ -8,6 +8,10 @@ namespace Callu.Application.Services;
 public interface IAuditLogService
 {
     Task LogAsync(string? userId, AuditAction action, string entityName, string entityId, string? oldValues = null, string? newValues = null, string? description = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Writes one row with everything the caller knows about it.</summary>
+    Task LogAsync(AuditRecord record, CancellationToken cancellationToken = default);
+
     Task<IEnumerable<AuditLog>> GetLogsAsync(string? entityName = null, string? entityId = null, int count = 100, CancellationToken cancellationToken = default);
 
     /// <summary>The filtered, paged trail an auditor reads.</summary>
@@ -15,4 +19,7 @@ public interface IAuditLogService
 
     /// <summary>The same trail as a stream, for an export that must not be held in memory.</summary>
     IAsyncEnumerable<AuditLogDto> StreamAsync(AuditLogFilter filter, CancellationToken cancellationToken = default);
+
+    /// <summary>The stored OpenAuditModel events of the filtered rows, through a sealed head, in sequence order.</summary>
+    IAsyncEnumerable<string> StreamSealedEventsAsync(AuditLogFilter filter, long throughSequence, CancellationToken cancellationToken = default);
 }

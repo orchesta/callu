@@ -5,6 +5,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { apiQueryOptions, useApiMutation } from '@/shared/api';
 import { toast } from '@/shared/utils';
 import { incidentApi } from '../api/incident.api';
+import type { ResolutionType } from '../api/incident.api';
 import type {
   IncidentFilter,
   CreateIncidentRequest,
@@ -211,7 +212,8 @@ export function useMitigateIncident() {
 export function useResolveIncident() {
   const qc = useQueryClient();
   return useApiMutation(
-    (id: string) => incidentApi.resolve(id),
+    (vars: { id: string; resolutionType: ResolutionType; reason?: string }) =>
+      incidentApi.resolve(vars.id, { resolutionType: vars.resolutionType, reason: vars.reason }),
     {
       successMessage: 'Incident resolved',
       onSuccess: () => {
@@ -224,7 +226,7 @@ export function useResolveIncident() {
 export function useCloseIncident() {
   const qc = useQueryClient();
   return useApiMutation(
-    (id: string) => incidentApi.close(id),
+    (vars: { id: string; reason: string }) => incidentApi.close(vars.id, vars.reason),
     {
       successMessage: 'Incident closed',
       onSuccess: () => {
@@ -237,7 +239,7 @@ export function useCloseIncident() {
 export function useReopenIncident() {
   const qc = useQueryClient();
   return useApiMutation(
-    (id: string) => incidentApi.reopen(id),
+    (vars: { id: string; reason: string }) => incidentApi.reopen(vars.id, vars.reason),
     {
       successMessage: 'Incident reopened',
       onSuccess: () => {
@@ -292,7 +294,8 @@ export function useBulkAcknowledge() {
 export function useBulkResolve() {
   const qc = useQueryClient();
   return useApiMutation(
-    (incidentIds: string[]) => incidentApi.bulkResolve(incidentIds),
+    (vars: { ids: string[]; resolutionType: ResolutionType; reason?: string }) =>
+      incidentApi.bulkResolve(vars.ids, vars.resolutionType, vars.reason),
     {
       successMessage: 'Incidents resolved',
       onSuccess: () => {

@@ -9,8 +9,10 @@ using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
+using Callu.Infrastructure.Audit;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Shared.Exceptions;
+using Callu.Shared.Models.Audit;
 using Callu.Shared.Models.Incidents;
 
 namespace Callu.Infrastructure.Services;
@@ -95,11 +97,17 @@ public class IncidentNoteService(
                 ActorUserId = userId
             }, cancellationToken);
 
-            await auditLogService.LogAsync(
-                userId, AuditAction.Created, "Incident", incidentId.ToString(),
-                newValues: note.Content,
-                description: $"Note {note.Id} added ({(note.IsInternal ? "internal" : "visible")})",
-                cancellationToken: cancellationToken);
+            // Read for the audit row only: the incident is not changed here.
+            var incident = (await incidentRepo.GetByIdAsync(incidentId, cancellationToken))!;
+            using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
+
+            await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Created, "Incident", incidentId.ToString())
+            {
+                Description = $"Note {note.Id} added ({(note.IsInternal ? "internal" : "visible")})",
+                // The keyed chain seals what the note first said; the exported change names the field only.
+                NewValues = note.Content,
+                Details = IncidentAuditDetails.NoteAdded(incident),
+            }, cancellationToken);
 
             logger.LogInformation("Added note {NoteId} to incident {IncidentId}", note.Id, incidentId);
             var authorNames = await ResolveAuthorNamesAsync([note.CreatedBy], cancellationToken);

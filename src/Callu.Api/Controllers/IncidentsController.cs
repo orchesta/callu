@@ -126,10 +126,11 @@ public class IncidentsController(
     /// </summary>
     [HttpPost("{id:guid}/resolve")]
     [Authorize(Policy = Policies.CanResolveIncidents)]
-    public async Task<IActionResult> ResolveIncident(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> ResolveIncident(Guid id, [FromBody] ResolveIncidentRequest? request, CancellationToken cancellationToken)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        await incidentService.ResolveIncidentAsync(id, userId, cancellationToken);
+        var note = IncidentTransitionNote.FromInput(request?.ResolutionType, request?.Reason);
+        await incidentService.ResolveIncidentAsync(id, userId, note, cancellationToken);
         return Ok(new { message = Messages.Get("incidents.resolved") });
     }
 
@@ -138,10 +139,11 @@ public class IncidentsController(
     /// </summary>
     [HttpPost("{id:guid}/close")]
     [Authorize(Policy = Policies.CanResolveIncidents)]
-    public async Task<IActionResult> CloseIncident(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> CloseIncident(Guid id, [FromBody] IncidentTransitionRequest? request, CancellationToken cancellationToken)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        await incidentService.CloseIncidentAsync(id, userId, cancellationToken);
+        var note = IncidentTransitionNote.FromInput(null, request?.Reason);
+        await incidentService.CloseIncidentAsync(id, userId, note, cancellationToken);
         return Ok(new { message = Messages.Get("incidents.closed") });
     }
 
@@ -150,10 +152,11 @@ public class IncidentsController(
     /// </summary>
     [HttpPost("{id:guid}/reopen")]
     [Authorize(Policy = Policies.CanManageIncidents)]
-    public async Task<IActionResult> ReopenIncident(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> ReopenIncident(Guid id, [FromBody] IncidentTransitionRequest? request, CancellationToken cancellationToken)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        await incidentService.ReopenIncidentAsync(id, userId, cancellationToken);
+        var note = IncidentTransitionNote.FromInput(null, request?.Reason);
+        await incidentService.ReopenIncidentAsync(id, userId, note, cancellationToken);
         return Ok(new { message = Messages.Get("incidents.reopened") });
     }
 
@@ -291,11 +294,12 @@ public class IncidentsController(
     /// </summary>
     [HttpPost("bulk/resolve")]
     [Authorize(Policy = Policies.CanResolveIncidents)]
-    public async Task<IActionResult> BulkResolve([FromBody] BulkActionRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> BulkResolve([FromBody] BulkResolveRequest request, CancellationToken cancellationToken)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var note = IncidentTransitionNote.FromInput(request.ResolutionType, request.Reason);
         return await BulkApplyAsync(request.IncidentIds, "resolve",
-            id => incidentService.ResolveIncidentAsync(id, userId, cancellationToken), cancellationToken);
+            id => incidentService.ResolveIncidentAsync(id, userId, note, cancellationToken), cancellationToken);
     }
 
     /// <summary>Bounded so one request cannot walk the whole incident table.</summary>
@@ -347,3 +351,8 @@ public class IncidentsController(
 /// Request body for bulk incident actions
 /// </summary>
 public record BulkActionRequest(List<Guid> IncidentIds);
+
+/// <summary>
+/// Request body for bulk resolve; the note applies to every incident in the request.
+/// </summary>
+public record BulkResolveRequest(List<Guid> IncidentIds, string? ResolutionType = null, string? Reason = null);

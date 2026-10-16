@@ -69,6 +69,7 @@ import type { IncidentNoteDto, IncidentTimelineEvent } from "../types/incident.t
 import { IncidentEscalationCard } from "./escalation-ladder";
 import { LifecycleStrip } from "./lifecycle-strip";
 import { ServiceActionsCard } from "./service-actions-card";
+import { TransitionDialog, type TransitionInput, type TransitionMode } from "./transition-dialog";
 import {
   canAcknowledgeIncidents,
   canManageIncidents,
@@ -171,6 +172,7 @@ export function IncidentDetail() {
   const createConference = useCreateConferenceRoom();
   const addNote = useAddNote();
   const [newNote, setNewNote] = useState("");
+  const [transition, setTransition] = useState<TransitionMode | null>(null);
 
   const timelineEvents = timelineData?.events ?? [];
   const timelineItems = buildTimeline(timelineEvents, notes);
@@ -180,9 +182,16 @@ export function IncidentDetail() {
   const handleAcknowledge = () => acknowledgeIncident.mutate(id);
   const handleInvestigate = () => investigateIncident.mutate(id);
   const handleMitigate = () => mitigateIncident.mutate(id);
-  const handleResolve = () => resolveIncident.mutate(id);
-  const handleClose = () => closeIncident.mutate(id);
-  const handleReopen = () => reopenIncident.mutate(id);
+  const handleResolve = () => setTransition("resolve");
+  const handleClose = () => setTransition("close");
+  const handleReopen = () => setTransition("reopen");
+
+  const handleTransition = (input: TransitionInput) => {
+    const done = { onSuccess: () => setTransition(null) };
+    if (transition === "resolve") resolveIncident.mutate({ id, resolutionType: input.resolutionType!, reason: input.reason }, done);
+    if (transition === "close") closeIncident.mutate({ id, reason: input.reason! }, done);
+    if (transition === "reopen") reopenIncident.mutate({ id, reason: input.reason! }, done);
+  };
   const handleEscalate = () => escalateIncident.mutate({ id });
   // Creates the conference room AND sends the SMS invite (join link) to team members with a
   // phone number — the only path that does so. Refetch so the join card appears afterwards.
@@ -981,6 +990,13 @@ export function IncidentDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TransitionDialog
+        mode={transition}
+        pending={resolveIncident.isPending || closeIncident.isPending || reopenIncident.isPending}
+        onCancel={() => setTransition(null)}
+        onConfirm={handleTransition}
+      />
 
       <DeleteConfirmDialog
         open={!!deletingNote}

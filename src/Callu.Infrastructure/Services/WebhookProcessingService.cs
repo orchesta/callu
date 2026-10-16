@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Callu.Infrastructure.Audit;
+using Callu.Shared.Models.Audit;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Application.Services;
@@ -97,6 +99,10 @@ public class WebhookProcessingService(
         string? sourceIp,
         CancellationToken cancellationToken = default)
     {
+        // The request is anonymous to ASP.NET; the service's webhook key is what admitted it, and
+        // every row this alert writes — the incident it opens or resolves — was allowed on that key.
+        using var authorization = AuditAuthorizationScope.Begin(AuditAuthorization.WebhookKey);
+
         var sw = Stopwatch.StartNew();
         try
         {
@@ -422,7 +428,8 @@ public class WebhookProcessingService(
 
                 if (incidentToResolve != null)
                 {
-                    await incidentService.ResolveIncidentAsync(incidentToResolve.Id, WebhookActor, cancellationToken);
+                    await incidentService.ResolveIncidentAsync(
+                        incidentToResolve.Id, WebhookActor, IncidentTransitionNote.AlertClearedBySource, cancellationToken);
 
                     return new WebhookProcessResult
                     {

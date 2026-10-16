@@ -405,7 +405,7 @@ public class WebhookProcessingServiceTests : IDisposable
 
         Assert.True(result.Success);
         Assert.NotNull(result.IncidentId);
-        await _incidentService.Received(1).ResolveIncidentAsync(Arg.Any<Guid>(), "system:webhook", Arg.Any<CancellationToken>());
+        await _incidentService.Received(1).ResolveIncidentAsync(Arg.Any<Guid>(), "system:webhook", IncidentTransitionNote.AlertClearedBySource, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -417,7 +417,7 @@ public class WebhookProcessingServiceTests : IDisposable
         var result = await Process(svc.WebhookToken!, "the-api-key");
 
         Assert.True(result.Success);
-        await _incidentService.DidNotReceive().ResolveIncidentAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _incidentService.DidNotReceive().ResolveIncidentAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IncidentTransitionNote>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

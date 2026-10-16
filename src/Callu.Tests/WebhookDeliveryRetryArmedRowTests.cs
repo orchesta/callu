@@ -45,6 +45,7 @@ public class WebhookDeliveryRetryArmedRowTests : IDisposable
     private Task RunSweepAsync()
     {
         var context = Substitute.For<IJobExecutionContext>();
+        context.JobDetail.Key.Returns(new JobKey("test-job"));
         context.CancellationToken.Returns(CancellationToken.None);
 
         return new WebhookDeliveryRetryQuartzJob(

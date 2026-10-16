@@ -7,6 +7,7 @@ using Mapster;
 using Callu.Application.Services;
 using Callu.Application.Plugins;
 using Callu.Application.Common.Interfaces.Persistence;
+using Callu.Shared.Models.Audit;
 using Callu.Shared.Models.Incidents;
 using Callu.Shared.Models.Notifications;
 using Callu.Shared.Extensions;
@@ -14,6 +15,7 @@ using Callu.Shared.Results;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
 using Callu.Infrastructure.Identity;
+using Callu.Infrastructure.Audit;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Shared.Exceptions;
 using Callu.Application.Common.Interfaces;
@@ -181,6 +183,8 @@ public class IncidentService(
                 : request.DataLanguage;
 
             await incidentRepo.AddAsync(incident, cancellationToken);
+            // The Id exists only once the incident is added; the timeline and audit rows below follow it.
+            using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incident.Id));
 
             await timelineRepo.AddAsync(new IncidentTimelineEvent
             {
@@ -191,10 +195,11 @@ public class IncidentService(
                 ActorUserId = currentUser.UserId ?? "system"
             }, cancellationToken);
 
-            await auditLogService.LogAsync(
-                Actor(), AuditAction.Created, "Incident", incident.Id.ToString(),
-                null, System.Text.Json.JsonSerializer.Serialize(request),
-                description: $"[{incident.Severity}] {incident.Title}", cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(new AuditRecord(Actor(), AuditAction.Created, "Incident", incident.Id.ToString())
+            {
+                Description = $"[{incident.Severity}] {incident.Title}",
+                Details = IncidentAuditDetails.Created(incident),
+            }, cancellationToken);
 
             IncidentServiceLog.IncidentCreated(logger, incident.Id);
 
@@ -288,6 +293,8 @@ public class IncidentService(
         }
 
         var (dto, escalationHandle, escalationIncidentId, escalationPolicyId) = staged;
+        // The in-transaction scope has ended; rows written from here on (a failed dispatch) still belong to the incident.
+        using var postCommitCorrelation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(escalationIncidentId));
 
         try
         {
@@ -435,11 +442,15 @@ public class IncidentService(
             // endpoint would, or the trail says two different things about one kind of act.
             if (incident.Status != statusBefore)
             {
-                await auditLogService.LogAsync(
-                    Actor(), TransitionAction(incident.Status), "Incident", incidentId.ToString(),
-                    $"Status: {statusBefore}", $"Status: {incident.Status}",
-                    description: $"Status changed from {statusBefore} to {incident.Status}",
-                    cancellationToken: cancellationToken);
+                await auditLogService.LogAsync(new AuditRecord(Actor(), TransitionAction(incident.Status), "Incident", incidentId.ToString())
+                {
+                    OldValues = $"Status: {statusBefore}",
+                    NewValues = $"Status: {incident.Status}",
+                    Description = $"Status changed from {statusBefore} to {incident.Status}",
+                    // PUT /incidents/{id} takes no reason or resolution type; a close or reopen through it is
+                    // recorded without one, and the profile check says so.
+                    Details = IncidentAuditDetails.Transition(incident, statusBefore, IncidentTransitionNote.None),
+                }, cancellationToken);
 
                 await timelineRepo.AddAsync(new IncidentTimelineEvent
                 {
@@ -504,6 +515,7 @@ public class IncidentService(
 
     public async Task AcknowledgeIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default)
     {
+        using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
         try
         {
             await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -563,8 +575,13 @@ public class IncidentService(
         await BroadcastLifecycleAsync(incidentId, "Acknowledged", cancellationToken);
     }
 
-    public async Task ResolveIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default)
+    public Task ResolveIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default) =>
+        ResolveIncidentAsync(incidentId, userId, IncidentTransitionNote.None, cancellationToken);
+
+    public async Task ResolveIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default)
     {
+        // First statement: rows written after the transaction (a failed dispatch) belong to the incident too.
+        using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
         try
         {
             await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -598,10 +615,13 @@ public class IncidentService(
 
                 await ExpireActiveConferenceRoomsAsync(incidentId, cancellationToken);
 
-                await auditLogService.LogAsync(
-                    userId, AuditAction.Resolved, "Incident", incidentId.ToString(),
-                    $"Status: {previous}", "Status: Resolved",
-                    description: $"Incident resolved from {previous}", cancellationToken: cancellationToken);
+                await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Resolved, "Incident", incidentId.ToString())
+                {
+                    OldValues = $"Status: {previous}",
+                    NewValues = "Status: Resolved",
+                    Description = $"Incident resolved from {previous}",
+                    Details = IncidentAuditDetails.Transition(incident, previous, note),
+                }, cancellationToken);
 
                 IncidentServiceLog.IncidentResolved(logger, incidentId, userId);
                 return true;
@@ -619,8 +639,13 @@ public class IncidentService(
         await BroadcastLifecycleAsync(incidentId, "Resolved", cancellationToken);
     }
 
-    public async Task CloseIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default)
+    public Task CloseIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default) =>
+        CloseIncidentAsync(incidentId, userId, IncidentTransitionNote.None, cancellationToken);
+
+    public async Task CloseIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default)
     {
+        // First statement: rows written after the transaction (a failed dispatch) belong to the incident too.
+        using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
         try
         {
             await transactionManager.ExecuteInTransactionAsync(async () =>
@@ -641,10 +666,13 @@ public class IncidentService(
 
                 await ExpireActiveConferenceRoomsAsync(incidentId, cancellationToken);
 
-                await auditLogService.LogAsync(
-                    userId, AuditAction.Closed, "Incident", incidentId.ToString(),
-                    $"Status: {previous}", "Status: Closed",
-                    description: $"Incident closed from {previous}", cancellationToken: cancellationToken);
+                await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Closed, "Incident", incidentId.ToString())
+                {
+                    OldValues = $"Status: {previous}",
+                    NewValues = "Status: Closed",
+                    Description = $"Incident closed from {previous}",
+                    Details = IncidentAuditDetails.Transition(incident, previous, note),
+                }, cancellationToken);
                 return true;
             }, cancellationToken);
         }
@@ -663,8 +691,13 @@ public class IncidentService(
         await BroadcastLifecycleAsync(incidentId, "Closed", cancellationToken);
     }
 
-    public async Task ReopenIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default)
+    public Task ReopenIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default) =>
+        ReopenIncidentAsync(incidentId, userId, IncidentTransitionNote.None, cancellationToken);
+
+    public async Task ReopenIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default)
     {
+        // First statement: rows written after the transaction (a failed dispatch) belong to the incident too.
+        using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
         IEscalationDispatchHandle escalationHandle = NoOpEscalationDispatchHandle.Instance;
         Guid? stagedPolicyId = null;
         try
@@ -703,10 +736,13 @@ public class IncidentService(
                     }
                 }
 
-                await auditLogService.LogAsync(
-                    userId, AuditAction.Reopened, "Incident", incidentId.ToString(),
-                    $"Status: {previous}", "Status: Open (reopened)",
-                    description: $"Incident reopened from {previous}", cancellationToken: cancellationToken);
+                await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Reopened, "Incident", incidentId.ToString())
+                {
+                    OldValues = $"Status: {previous}",
+                    NewValues = "Status: Open (reopened)",
+                    Description = $"Incident reopened from {previous}",
+                    Details = IncidentAuditDetails.Transition(incident, previous, note),
+                }, cancellationToken);
                 return true;
             }, cancellationToken);
         }

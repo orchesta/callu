@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using Callu.Api.Controllers;
 using Callu.Application.Services;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
@@ -12,11 +13,9 @@ using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Infrastructure.Services;
 using Callu.Shared.Models.Audit;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Callu.Tests;
@@ -27,16 +26,6 @@ namespace Callu.Tests;
 public class AuditExportSelfAuditTests(PostgresFixture fixture)
 {
     private sealed record World(AuditLogsController Controller, ApplicationDbContext Ctx, string ConnectionString);
-
-    private sealed class TestWebHostEnvironment : IWebHostEnvironment
-    {
-        public string EnvironmentName { get; set; } = "Test";
-        public string ApplicationName { get; set; } = "Callu.Tests";
-        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-        public string WebRootPath { get; set; } = AppContext.BaseDirectory;
-        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
-        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
-    }
 
     private async Task<World> ArrangeAsync()
     {
@@ -63,8 +52,11 @@ public class AuditExportSelfAuditTests(PostgresFixture fixture)
             DataProtectionProvider.Create(nameof(AuditExportSelfAuditTests)),
             NullLogger<AuditChainService>.Instance);
 
+        var signingKeys = Substitute.For<IAuditSigningKeyService>();
         var controller = new AuditLogsController(
-            service, chain, Substitute.For<IAuditSigningKeyService>(), new TestWebHostEnvironment())
+            service, chain, signingKeys,
+            new AuditCheckpointService(ctx, signingKeys, Substitute.For<IHttpClientFactory>(),
+                Options.Create(new AuditCheckpointOptions()), NullLogger<AuditCheckpointService>.Instance))
         {
             ControllerContext = new ControllerContext { HttpContext = http },
         };

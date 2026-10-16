@@ -7,6 +7,8 @@ public sealed record AuditSigningPublicKeyDto
     public string Algorithm { get; init; } = "Ed25519";
     /// <summary>Base64 of the raw 32-byte public key.</summary>
     public string PublicKey { get; init; } = string.Empty;
+    /// <summary>The same key as a SubjectPublicKeyInfo PEM, the form an OpenAuditModel verifier reads.</summary>
+    public string PublicKeyPem { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     /// <summary>Null for the key new exports are signed with.</summary>
     public DateTime? RetiredAt { get; init; }

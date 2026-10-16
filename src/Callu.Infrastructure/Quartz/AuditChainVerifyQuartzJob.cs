@@ -16,6 +16,7 @@ public sealed class AuditChainVerifyQuartzJob(
 {
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         using var scope = scopeFactory.CreateScope();
         var chain = scope.ServiceProvider.GetRequiredService<AuditChainService>();
 

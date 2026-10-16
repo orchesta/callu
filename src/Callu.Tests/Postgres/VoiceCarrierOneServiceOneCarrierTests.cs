@@ -102,6 +102,7 @@ public class VoiceCarrierOneServiceOneCarrierTests(PostgresFixture pg)
     private static IJobExecutionContext JobContext()
     {
         var context = Substitute.For<IJobExecutionContext>();
+        context.JobDetail.Key.Returns(new JobKey("test-job"));
         context.CancellationToken.Returns(CancellationToken.None);
         return context;
     }

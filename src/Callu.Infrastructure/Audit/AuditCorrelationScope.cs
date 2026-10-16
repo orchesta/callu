@@ -18,6 +18,19 @@ public static class AuditCorrelationScope
         return new Scope(previous);
     }
 
+    /// <summary>Names the operation only when nothing outside has: a job run stays the operation of its rows.</summary>
+    public static IDisposable BeginIfAbsent(string correlationId) =>
+        Current.Value is null ? Begin(correlationId) : NoScope.Instance;
+
+    /// <summary>The operation an incident's own lifecycle belongs to; a surrogate, never its title.</summary>
+    public static string ForIncident(Guid incidentId) => "incident-" + incidentId.ToString("N");
+
+    private sealed class NoScope : IDisposable
+    {
+        public static readonly NoScope Instance = new();
+        public void Dispose() { }
+    }
+
     private sealed class Scope(string? previous) : IDisposable
     {
         private bool _restored;

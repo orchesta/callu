@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Callu.Domain.Entities;
+using Callu.Domain.Enums;
 using Callu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -71,6 +72,7 @@ public sealed class AuditArchiveService(
         if (archivedDays > 0)
         {
             await WriteManifestAsync(settings.Path!, ct);
+            await CopyCheckpointsAsync(settings.Path!, ct);
             logger.LogInformation(
                 "Audit archive wrote {Days} day(s), {Rows} entry(ies), through {Day}",
                 archivedDays, archivedRows, through);
@@ -95,8 +97,10 @@ public sealed class AuditArchiveService(
 
         // An unsealed entry cannot be verified from the archive later, and archiving past it would
         // let retention delete it. Stop here and pick the day up once the chain has caught up.
+        // The public chain must have reached the day too: an archive of stored events with a hole in
+        // it would hand a verifier a chain that looks broken for no reason.
         var unsealed = await db.AuditLogs
-            .CountAsync(l => l.CreatedAt >= from && l.CreatedAt < to && l.Sequence == null, ct);
+            .CountAsync(l => l.CreatedAt >= from && l.CreatedAt < to && (l.Sequence == null || l.OamHash == null), ct);
 
         if (unsealed > 0)
         {
@@ -109,43 +113,35 @@ public sealed class AuditArchiveService(
         var finalPath = Path.Combine(directory, fileName);
         var tempPath = finalPath + ".partial";
 
-        int rows;
-        string hash;
-        long size;
+        var oamFileName = $"audit-oam-{day:yyyy-MM-dd}.jsonl.gz";
+        var oamFinalPath = Path.Combine(directory, oamFileName);
+        var oamTempPath = oamFinalPath + ".partial";
+
+        var rows = 0;
         long? firstSequence = null, lastSequence = null;
         DateTime firstAt = default, lastAt = default;
 
+        var entries = db.AuditLogs
+            .AsNoTracking()
+            .Where(l => l.CreatedAt >= from && l.CreatedAt < to)
+            .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id)
+            .AsAsyncEnumerable();
+
         // Written to a temporary name and moved into place, so a crash mid-write cannot leave a
         // truncated file that the manifest then vouches for.
-        await using (var file = File.Create(tempPath))
-        using (var sha = SHA256.Create())
-        await using (var hashing = new CryptoStream(file, sha, CryptoStreamMode.Write))
+        var (hash, size) = await WriteGzipAsync(tempPath, Lines(), ct);
+
+        async IAsyncEnumerable<string> Lines()
         {
-            await using (var gzip = new GZipStream(hashing, CompressionLevel.SmallestSize, leaveOpen: true))
-            await using (var writer = new StreamWriter(gzip))
+            await foreach (var entry in entries.WithCancellation(ct))
             {
-                rows = 0;
+                if (rows == 0) { firstSequence = entry.Sequence; firstAt = entry.CreatedAt; }
+                lastSequence = entry.Sequence;
+                lastAt = entry.CreatedAt;
+                rows++;
 
-                var entries = db.AuditLogs
-                    .AsNoTracking()
-                    .Where(l => l.CreatedAt >= from && l.CreatedAt < to)
-                    .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id)
-                    .AsAsyncEnumerable();
-
-                await foreach (var entry in entries.WithCancellation(ct))
-                {
-                    await writer.WriteLineAsync(JsonSerializer.Serialize(Record(entry), Json));
-
-                    if (rows == 0) { firstSequence = entry.Sequence; firstAt = entry.CreatedAt; }
-                    lastSequence = entry.Sequence;
-                    lastAt = entry.CreatedAt;
-                    rows++;
-                }
+                yield return JsonSerializer.Serialize(Record(entry), Json);
             }
-
-            hashing.FlushFinalBlock();
-            hash = Convert.ToBase64String(sha.Hash!);
-            size = file.Length;
         }
 
         if (rows == 0)
@@ -153,6 +149,13 @@ public sealed class AuditArchiveService(
             File.Delete(tempPath);
             return null;
         }
+
+        var (oamHash, _) = await WriteGzipAsync(oamTempPath,
+            db.AuditLogs.AsNoTracking()
+                .Where(l => l.CreatedAt >= from && l.CreatedAt < to)
+                .OrderBy(l => l.Sequence)
+                .Select(l => l.OamEvent!)
+                .AsAsyncEnumerable(), ct);
 
         var run = new AuditArchiveRun
         {
@@ -166,6 +169,8 @@ public sealed class AuditArchiveService(
             LastSequence = lastSequence,
             FirstCreatedAt = firstAt,
             LastCreatedAt = lastAt,
+            OamFileName = oamFileName,
+            OamSha256 = oamHash,
         };
 
         // The row is the claim on this day, and it is taken BEFORE the file is published. The other
@@ -180,6 +185,7 @@ public sealed class AuditArchiveService(
         {
             db.Entry(run).State = EntityState.Detached;
             File.Delete(tempPath);
+            File.Delete(oamTempPath);
 
             logger.LogInformation(
                 "Audit archive for {Day} was already claimed by another run; this one wrote nothing.", day);
@@ -189,6 +195,7 @@ public sealed class AuditArchiveService(
         try
         {
             File.Move(tempPath, finalPath, overwrite: false);
+            File.Move(oamTempPath, oamFinalPath, overwrite: false);
         }
         catch (Exception ex)
         {
@@ -220,6 +227,8 @@ public sealed class AuditArchiveService(
                 lastSequence = r.LastSequence,
                 firstCreatedAt = r.FirstCreatedAt,
                 lastCreatedAt = r.LastCreatedAt,
+                oamFile = r.OamFileName,
+                oamSha256 = r.OamSha256,
             })
             .ToListAsync(ct);
 
@@ -230,7 +239,46 @@ public sealed class AuditArchiveService(
         File.Move(temp, path, overwrite: true);
     }
 
-    // The chain fields travel with the entry, so an archive plus the key verifies on its own.
+    private static async Task<(string Hash, long Size)> WriteGzipAsync(
+        string path, IAsyncEnumerable<string> lines, CancellationToken ct)
+    {
+        await using var file = File.Create(path);
+        using var sha = SHA256.Create();
+        await using var hashing = new CryptoStream(file, sha, CryptoStreamMode.Write);
+
+        await using (var gzip = new GZipStream(hashing, CompressionLevel.SmallestSize, leaveOpen: true))
+        await using (var writer = new StreamWriter(gzip))
+        {
+            await foreach (var line in lines.WithCancellation(ct))
+                await writer.WriteLineAsync(line);
+        }
+
+        hashing.FlushFinalBlock();
+        return (Convert.ToBase64String(sha.Hash!), file.Length);
+    }
+
+    private async Task CopyCheckpointsAsync(string directory, CancellationToken ct)
+    {
+        var target = Path.Combine(directory, "checkpoints");
+        Directory.CreateDirectory(target);
+
+        var issued = await db.AuditCheckpoints.AsNoTracking()
+            .Where(c => c.Status == AuditCheckpointStatus.Issued)
+            .Select(c => new { c.HeadSequence, c.Document })
+            .ToListAsync(ct);
+
+        foreach (var checkpoint in issued)
+        {
+            var path = Path.Combine(target, $"checkpoint-{checkpoint.HeadSequence:D12}.json");
+            if (File.Exists(path)) continue;
+
+            await File.WriteAllTextAsync(path + ".partial", checkpoint.Document, ct);
+            File.Move(path + ".partial", path, overwrite: false);
+        }
+    }
+
+    // The chain fields travel with the entry, and so does every field the keyed hash covers in any
+    // canonical form, so an archive plus the key verifies on its own.
     private static object Record(AuditLog e) => new
     {
         e.Id,
@@ -257,6 +305,9 @@ public sealed class AuditArchiveService(
         e.CorrelationId,
         e.TraceId,
         e.SpanId,
+        e.ParentSpanId,
+        e.RequestMethod,
+        e.Details,
         e.CanonicalizationVersion,
     };
 }

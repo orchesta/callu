@@ -135,6 +135,7 @@ public class EventChainTerminalFailureTests : IDisposable
         using var provider = services.BuildServiceProvider();
 
         var context = Substitute.For<IJobExecutionContext>();
+        context.JobDetail.Key.Returns(new JobKey("test-job"));
         context.CancellationToken.Returns(CancellationToken.None);
 
         return new WebhookDeliveryRetryQuartzJob(

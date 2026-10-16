@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Callu.Domain.Base;
+using Callu.Domain.Entities;
 using Callu.Infrastructure.Configuration;
 using Callu.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -23,10 +24,15 @@ public sealed class RetentionPruneQuartzJob(
     internal const int DefaultMaxRowsPerTable = 500_000;
     private const int BatchCommandTimeoutSeconds = 120;
 
+    // The public chain's next row must be the one after its last, so a row it has not reached cannot go:
+    // deleting it would stop that chain for good.
+    internal static readonly Expression<Func<AuditLog, bool>> PublicChainRows = e => e.OamHash != null;
+
     internal sealed record RetentionTarget(string Table, int Days, Func<CancellationToken, Task<int>> PruneAsync);
 
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         var retention = options.Value;
         if (!retention.AnyEnabled)
             return;
@@ -51,7 +57,7 @@ public sealed class RetentionPruneQuartzJob(
             Target(db.Notifications, retention.NotificationDays, "Notifications", now),
             // The hash chain reads what is left as a prefix, so what goes has to be one too:
             // a hole in the middle is indistinguishable from a deleted entry.
-            Target(db.AuditLogs, retention.AuditLogDays, "AuditLogs", now, auditCutoffCap, e => e.Sequence),
+            Target(db.AuditLogs, retention.AuditLogDays, "AuditLogs", now, auditCutoffCap, e => e.Sequence, PublicChainRows),
             Target(db.WebhookCaptures, retention.WebhookCaptureDays, "WebhookCaptures", now),
             Target(db.CallLogs, retention.CallLogDays, "CallLogs", now),
             Target(db.StatusPageViews, retention.StatusPageViewDays, "StatusPageViews", now),
@@ -87,7 +93,8 @@ public sealed class RetentionPruneQuartzJob(
     private RetentionTarget Target<T>(
         DbSet<T> set, int days, string table, DateTime now,
         DateTime? cutoffCap = null,
-        Expression<Func<T, object?>>? oldestFirst = null)
+        Expression<Func<T, object?>>? oldestFirst = null,
+        Expression<Func<T, bool>>? onlyWhere = null)
         where T : BaseEntity
         => new(table, days, ct => PruneTableAsync(
             set,
@@ -96,6 +103,7 @@ public sealed class RetentionPruneQuartzJob(
             ct,
             cutoffCap: cutoffCap,
             oldestFirst: oldestFirst,
+            onlyWhere: onlyWhere,
             onBatch: total => logger.LogInformation(
                 "Retention prune {Table}: {Count} row(s) removed so far", table, total)));
 
@@ -148,7 +156,8 @@ public sealed class RetentionPruneQuartzJob(
         int maxRows = DefaultMaxRowsPerTable,
         DateTime? cutoffCap = null,
         Expression<Func<T, object?>>? oldestFirst = null,
-        Action<int>? onBatch = null)
+        Action<int>? onBatch = null,
+        Expression<Func<T, bool>>? onlyWhere = null)
         where T : BaseEntity
     {
         if (days <= 0)
@@ -168,6 +177,9 @@ public sealed class RetentionPruneQuartzJob(
             var eligible = set
                 .IgnoreQueryFilters()
                 .Where(e => e.CreatedAt < cutoff);
+
+            if (onlyWhere is not null)
+                eligible = eligible.Where(onlyWhere);
 
             if (oldestFirst is not null)
                 eligible = eligible.OrderBy(oldestFirst);

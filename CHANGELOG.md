@@ -3,6 +3,41 @@
 Notable, user-facing changes to Callu. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.3.0 — <release date>
+
+- **The audit export is OpenAuditModel 1.0, and verifies with OpenAuditModel's own tool** (in callu's
+  CI, on a sample export; not a certification). Each audit row's event is now built once, when the row
+  is sealed, and stored with its digest; the JSON Lines export streams those stored events instead of
+  rebuilding them, so two exports of the same row are byte-identical. The events form one public hash chain per installation beside the existing keyed
+  chain, which is unchanged. An export seals first, so it no longer contains unsealed rows, and its own
+  audit row records the sequence it was sealed through. Rows written by earlier versions join the chain
+  on the first run after upgrading, after their keyed hash is checked; none is rewritten.
+- **Checkpoints and inclusion proofs.** With `Callu:AuditCheckpoint:PublishUrl` set, the Worker
+  publishes a signed checkpoint of the chain's head once a day and issues it only after the URL accepts
+  it; an administrator can also issue one by hand with a reference to where it is recorded. A sealed
+  entry has an OpenAuditModel inclusion proof at `GET /api/v1/audit-logs/{id}/proof` once an issued
+  checkpoint covers it. The signing-keys endpoint now also returns each key as PEM.
+- **Resolving, closing and reopening ask why.** The panel asks how an incident was resolved and, on
+  close and reopen, for a reason; both are stored with the audit row. The API accepts them as optional
+  body fields, so existing integrations keep working. Alerts cleared by their source are recorded as
+  such.
+- **Audit rows record more of their context**: the route template rather than the resolved path, the
+  HTTP method, the parent span, the authorization policy that admitted the request, and one
+  correlation id per job run and per incident. Free-text audit search no longer matches an identifier
+  inside a new row's route. Adding a note records the incident's status and priority; the note's text
+  stays in the audit row's sealed change column and is not part of the exported event.
+- **Fixed:** changes made in the panel to SIP trunks, communication providers, organization settings,
+  notification channels and services were attributed to the system; they are now attributed to the
+  administrator who made them. Webhook-created incidents were recorded with a user actor type; they are
+  now system actors.
+- The audit archive writes each closed day's OpenAuditModel events beside the existing file and keeps
+  a copy of every issued checkpoint. The existing file now also carries each row's details, parent span
+  and HTTP method, so a row's keyed hash can be checked from the archive.
+- Upgrade note: the first Worker run after upgrading builds the public chain over every surviving
+  audit row, which can take a while on a large audit table, and the stored events make the table
+  noticeably larger. Read the README's upgrade notes before upgrading: verify the chain first, and
+  upgrade the API and the Worker together.
+
 ## 1.2.0 — 2026-08-12
 
 - **Service actions**: a service can now carry operator-defined outbound HTTP actions
