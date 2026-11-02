@@ -34,6 +34,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<Notification> Notifications { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; } = null!;
     public DbSet<AuditChainState> AuditChainStates { get; set; } = null!;
+    public DbSet<AuditChainLeaf> AuditChainLeaves { get; set; } = null!;
+    public DbSet<AuditCheckpoint> AuditCheckpoints { get; set; } = null!;
     public DbSet<AuditSigningKey> AuditSigningKeys { get; set; } = null!;
     public DbSet<AuditArchiveRun> AuditArchiveRuns { get; set; } = null!;
 
@@ -522,6 +524,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     private static void ConfigureAuditLog(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AuditChainState>();
+        modelBuilder.Entity<AuditChainLeaf>(entity => entity.Property(e => e.Sequence).ValueGeneratedNever());
+        modelBuilder.Entity<AuditCheckpoint>(entity => entity.HasIndex(e => new { e.Status, e.HeadSequence }));
 
         modelBuilder.Entity<AuditSigningKey>(entity =>
         {
@@ -557,6 +561,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
             // The sealer reads only the rows it has not sealed yet, which are a small tail.
             entity.HasIndex(e => new { e.CreatedAt, e.Id })
                 .HasFilter("\"Sequence\" IS NULL");
+
+            // The public chain's pass reads only the sealed rows it has not reached yet, a small tail
+            // after the first run, and the whole table once, on upgrade. Named, so it is a second
+            // index on Sequence rather than a rename of the unique one above.
+            entity.HasIndex(e => e.Sequence, "IX_AuditLogs_Sequence_PublicChainPending")
+                .HasFilter("\"Sequence\" IS NOT NULL AND \"OamHash\" IS NULL");
         });
     }
 

@@ -1,3 +1,4 @@
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Infrastructure.Configuration;
@@ -59,6 +60,33 @@ public class ServiceUpdatePartialPutTests : IDisposable
     public void Dispose() => _ctx.Dispose();
 
     private Service Stored() => _ctx.Services.AsNoTracking().Single(s => s.Id == _serviceId);
+
+    /// <summary>A change made from the panel is written under the person who made it, not as nobody.</summary>
+    [Fact]
+    public async Task AStatusChange_IsAuditedUnderTheSignedInUser()
+    {
+        var audit = Substitute.For<IAuditLogService>();
+        var currentUser = Substitute.For<ICurrentUserService>();
+        currentUser.UserId.Returns("admin-7");
+        var sut = new ServiceManagementService(
+            new ServiceRepository(_ctx, NullLogger<ServiceRepository>.Instance),
+            Substitute.For<Callu.Application.Common.Interfaces.Persistence.IServiceDependencyRepository>(),
+            new SavingTransactionManager(_ctx),
+            audit,
+            Substitute.For<IServiceStatusCascadeEngine>(),
+            Substitute.For<IStatusPageComponentService>(),
+            Substitute.For<IUptimeCalculator>(),
+            Substitute.For<IIncidentService>(),
+            Options.Create(new CommunicationSettingsOptions()),
+            NullLogger<ServiceManagementService>.Instance,
+            currentUser);
+
+        await sut.UpdateStatusAsync(_serviceId, Callu.Domain.Enums.ServiceStatus.DegradedPerformance);
+
+        await audit.Received(1).LogAsync(
+            "admin-7", Callu.Domain.Enums.AuditAction.Updated, "Service", _serviceId.ToString(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public async Task ANameOnlyPut_LeavesTheAckConfigurationIntact()

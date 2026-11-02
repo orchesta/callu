@@ -44,6 +44,7 @@ public static partial class AuditEventNaming
         AuditAction.EscalationDispatchPartiallyFailed => "escalation-dispatch-partially-failed",
         AuditAction.EscalationTriggerFailed => "escalation-trigger-failed",
         AuditAction.DispatchFailed => "dispatch-failed",
+        AuditAction.PublishFailed => "publish-failed",
         AuditAction.Suppressed => "suppress",
         AuditAction.MarkedUsed => "mark-used",
         AuditAction.Cascaded => "cascade",
@@ -63,7 +64,7 @@ public static partial class AuditEventNaming
     {
         "Incident" or "Escalation" => "incident-management",
         "User" or "Team" => "identity-and-access-management",
-        "AuditLog" => "audit-management",
+        "AuditLog" or "AuditCheckpoint" => "audit-management",
         _ => "platform-administration",
     };
 
@@ -71,6 +72,7 @@ public static partial class AuditEventNaming
     {
         AuditAction.LoginFailed
             or AuditAction.DispatchFailed
+            or AuditAction.PublishFailed
             or AuditAction.EscalationDispatchFailed
             or AuditAction.EscalationTriggerFailed
             or AuditAction.EscalationNobodyReached
@@ -87,6 +89,9 @@ public static partial class AuditEventNaming
             or AuditAction.EscalationDispatchFailing => AuditOutcome.Partial,
         _ => AuditOutcome.Success,
     };
+
+    /// <summary>The resource type as OpenAuditModel's vocabulary token: the same slug the event name uses.</summary>
+    public static string ToResourceType(string resourceType) => Slugify(resourceType);
 
     private static string Slugify(string pascalCase) =>
         PascalBoundary().Replace(pascalCase, "-").TrimStart('-').ToLowerInvariant();

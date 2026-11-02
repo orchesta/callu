@@ -177,25 +177,6 @@ public class AuditLogExportTests
         Assert.Contains("\"line1\nline2\"", csv, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task JsonLinesWritesOneObjectPerLine()
-    {
-        using var output = new MemoryStream();
-        await AuditLogExport.WriteJsonLinesAsync(output, Stream(Row(), Row()), "Test", null, CancellationToken.None);
-
-        var lines = Encoding.UTF8.GetString(output.ToArray())
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
-
-        Assert.Equal(2, lines.Length);
-        foreach (var line in lines)
-        {
-            using var parsed = JsonDocument.Parse(line);
-            Assert.Equal("0.1", parsed.RootElement.GetProperty("specVersion").GetString());
-            Assert.Equal("user.login", parsed.RootElement.GetProperty("event").GetProperty("name").GetString());
-            Assert.Equal("Callu", parsed.RootElement.GetProperty("application").GetProperty("name").GetString());
-        }
-    }
-
     /// <summary>The writer must consume the source lazily, or a long range is held in memory first.</summary>
     [Fact]
     public async Task TheWriterNeverPullsTheWholeRangeBeforeWriting()

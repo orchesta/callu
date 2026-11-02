@@ -148,6 +148,7 @@ jobs:
       - name: Test
         env:
           CALLU_REQUIRE_DOCKER: '1'
+          CALLU_OAM_ARTIFACTS: ${{ github.workspace }}/artifacts/openauditmodel
         run: >-
           dotnet test src/CalluApp.slnx --no-build --configuration Release --verbosity normal
           --logger "trx;LogFileName=backend-tests.trx"
@@ -162,6 +163,32 @@ jobs:
           path: src/Callu.Tests/TestResults/**
           if-no-files-found: warn
           retention-days: 7
+
+      # OpenAuditModel's own tool, pinned, against the files the conformance test wrote. A later
+      # tooling release cannot fail this job until someone bumps the pin on purpose.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: OpenAuditModel conformance
+        working-directory: artifacts/openauditmodel
+        run: |
+          set -euo pipefail
+          oam() { npx --yes @openauditmodel/cli@1.0.0 "$@"; }
+          oam validate export.jsonl
+          oam verify-integrity export.jsonl --public-key public-key.pem
+          oam verify-chain export.jsonl
+          oam verify-checkpoint export.jsonl --checkpoint checkpoint.json --public-key public-key.pem
+          oam verify-proof event.json --proof proof.json --public-key public-key.pem
+          oam lint-privacy export.jsonl
+          oam check-profile export.jsonl --profile incident-management
+
+      - name: Upload OpenAuditModel artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openauditmodel-conformance
+          path: artifacts/openauditmodel
 
   frontend:
     name: Frontend — type-check, lint, build & test

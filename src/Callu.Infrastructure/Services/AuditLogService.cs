@@ -43,7 +43,7 @@ public class AuditLogService(
         }
     }
 
-    public async Task LogAsync(
+    public Task LogAsync(
         string? userId,
         AuditAction action,
         string entityName,
@@ -51,46 +51,61 @@ public class AuditLogService(
         string? oldValues = null,
         string? newValues = null,
         string? description = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        LogAsync(new AuditRecord(userId, action, entityName, entityId)
+        {
+            OldValues = oldValues,
+            NewValues = newValues,
+            Description = description,
+        }, cancellationToken);
+
+    public async Task LogAsync(AuditRecord record, CancellationToken cancellationToken = default)
     {
         var http = httpContextAccessor.HttpContext;
         AuditLog? written = null;
+        var details = (record.Details ?? new AuditDetails()) with
+        {
+            Authorization = record.Details?.Authorization
+                ?? AuditAuthorizationScope.Current
+                ?? AuditRequestContext.Authorization(http),
+        };
 
         // Resolved before the transaction opens. Inside one, a failed read aborts the transaction on
         // Postgres, so catching it would not save the row it was meant to protect.
-        var actorName = await ActorNameAsync(userId, http, cancellationToken);
+        var actorName = await ActorNameAsync(record.UserId, http, cancellationToken);
 
         await transactionManager.ExecuteInTransactionAsync(async () =>
         {
-            Guid? resourceGuid = null;
-            if (Guid.TryParse(entityId, out var parsedGuid))
-            {
-                resourceGuid = parsedGuid;
-            }
+            Guid? resourceGuid = Guid.TryParse(record.EntityId, out var parsedGuid) ? parsedGuid : null;
 
             var trace = AuditTraceContext.Current();
             var log = new AuditLog
             {
                 Id = Guid.NewGuid(),
-                ActorId = userId,
+                ActorId = record.UserId,
                 ActorDisplayName = Truncate(actorName, 100),
-                ActorType = userId is null ? AuditActorType.System : AuditActorType.User,
-                Action = action,
-                EventName = AuditEventNaming.ToEventName(entityName, action),
-                EventCategory = AuditEventNaming.ToEventCategory(entityName),
-                Outcome = AuditEventNaming.ToOutcome(action),
-                ResourceType = entityName,
+                ActorType = AuditRequestContext.ActorType(record.UserId),
+                Action = record.Action,
+                EventName = AuditEventNaming.ToEventName(record.EntityName, record.Action),
+                EventCategory = AuditEventNaming.ToEventCategory(record.EntityName),
+                Outcome = AuditEventNaming.ToOutcome(record.Action),
+                ResourceType = record.EntityName,
                 ResourceId = resourceGuid,
-                Summary = Truncate(description, 500),
-                ChangeBefore = oldValues,
-                ChangeAfter = newValues,
+                Summary = Truncate(record.Description, 500),
+                // The panel shows these two columns; a caller that passes only a structured change
+                // still gets something there to read.
+                ChangeBefore = record.OldValues ?? record.Details?.Change?.Before?.ToJsonString(),
+                ChangeAfter = record.NewValues ?? record.Details?.Change?.After?.ToJsonString(),
                 RequestIpAddress = Truncate(http?.Connection?.RemoteIpAddress?.ToString(), 50),
                 RequestUserAgent = Truncate(http?.Request.Headers.UserAgent.ToString(), 500),
-                RequestRoute = Truncate(http?.Request.Path.Value, 500),
+                RequestRoute = Truncate(AuditRequestContext.RouteTemplate(http), 500),
+                RequestMethod = Truncate(http?.Request.Method, AuditLog.MaxRequestMethodLength),
                 RequestId = Truncate(http?.TraceIdentifier, AuditLog.MaxCorrelationIdLength),
                 CorrelationId = Truncate(AuditCorrelationScope.CorrelationId, AuditLog.MaxCorrelationIdLength),
                 TraceId = trace.TraceId,
                 SpanId = trace.SpanId,
+                ParentSpanId = trace.ParentSpanId,
+                Details = AuditDetailsJson.Serialize(details),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -182,6 +197,9 @@ public class AuditLogService(
                 CorrelationId = l.CorrelationId,
                 TraceId = l.TraceId,
                 SpanId = l.SpanId,
+                ParentSpanId = l.ParentSpanId,
+                RequestMethod = l.RequestMethod,
+                Details = l.Details,
                 Sequence = l.Sequence,
                 PrevHash = l.PrevHash,
                 RowHash = l.RowHash,
@@ -247,6 +265,9 @@ public class AuditLogService(
         CorrelationId = l.CorrelationId,
         TraceId = l.TraceId,
         SpanId = l.SpanId,
+        ParentSpanId = l.ParentSpanId,
+        RequestMethod = l.RequestMethod,
+        Details = l.Details,
         Sequence = l.Sequence,
         PrevHash = l.PrevHash,
         RowHash = l.RowHash,
@@ -289,6 +310,29 @@ public class AuditLogService(
 
             lastCreatedAt = batch[^1].CreatedAt;
             lastId = batch[^1].Id;
+        }
+    }
+
+    public async IAsyncEnumerable<string> StreamSealedEventsAsync(
+        AuditLogFilter filter,
+        long throughSequence,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        long cursor = 0;
+
+        while (true)
+        {
+            var batch = await Filtered(filter)
+                .Where(l => l.OamEvent != null && l.Sequence > cursor && l.Sequence <= throughSequence)
+                .OrderBy(l => l.Sequence)
+                .Take(ExportBatchSize)
+                .Select(l => new { Sequence = l.Sequence!.Value, l.OamEvent })
+                .ToListAsync(cancellationToken);
+
+            foreach (var row in batch) yield return row.OamEvent!;
+
+            if (batch.Count < ExportBatchSize) yield break;
+            cursor = batch[^1].Sequence;
         }
     }
 }

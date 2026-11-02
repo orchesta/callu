@@ -50,8 +50,11 @@ internal static class CoreServicesModule
         services.AddSingleton<Audit.AuditSyslogSink>();
         services.AddSingleton<Audit.IAuditSink>(sp => sp.GetRequiredService<Audit.AuditSyslogSink>());
         services.AddHostedService(sp => sp.GetRequiredService<Audit.AuditSyslogSink>());
+        services.AddSingleton(sp => new Audit.OpenAuditModel.OpenAuditEventSource(
+            "Callu", sp.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>().EnvironmentName));
         services.AddScoped<Audit.AuditChainService>();
         services.AddScoped<Audit.AuditArchiveService>();
+        services.AddScoped<Audit.AuditCheckpointService>();
         services.AddScoped<Application.Services.IAuditLogService, Services.AuditLogService>();
 
         services.AddScoped<Application.Services.IOrganizationSettingsService, Services.OrganizationSettingsService>();

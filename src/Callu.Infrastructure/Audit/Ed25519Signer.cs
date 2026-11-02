@@ -23,6 +23,15 @@ public sealed class Ed25519Signer(string keyId, byte[] privateKey) : IOpenAuditS
         return Convert.ToBase64String(signer.GenerateSignature());
     }
 
+    // SubjectPublicKeyInfo for Ed25519 is a fixed 12-byte prefix (RFC 8410) followed by the raw key.
+    private static readonly byte[] SpkiPrefix = Convert.FromHexString("302a300506032b6570032100");
+
+    /// <summary>The public key as the PEM an OpenAuditModel verifier takes with --public-key.</summary>
+    public static string ToPem(byte[] publicKey) =>
+        "-----BEGIN PUBLIC KEY-----\n"
+        + Convert.ToBase64String([.. SpkiPrefix, .. publicKey])
+        + "\n-----END PUBLIC KEY-----\n";
+
     public static bool Verify(byte[] publicKey, byte[] canonicalBytes, string base64Signature)
     {
         var verifier = new Org.BouncyCastle.Crypto.Signers.Ed25519Signer();

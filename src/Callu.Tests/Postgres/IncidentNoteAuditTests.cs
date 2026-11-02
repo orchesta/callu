@@ -1,13 +1,16 @@
 using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Application.Services;
+using System.Text.Json.Nodes;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
+using Callu.Infrastructure.Audit;
 using Callu.Infrastructure.DI;
 using Callu.Infrastructure.Persistence;
 using Callu.Infrastructure.Persistence.Transactions;
 using Callu.Infrastructure.Services;
 using Callu.Shared.Models.Incidents;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +38,39 @@ public class IncidentNoteAuditTests(PostgresFixture pg)
         Assert.Equal(world.IncidentId, row.ResourceId);
         Assert.Equal("ada", row.ActorId);
         Assert.Equal("Rolled back the deploy", row.ChangeAfter);
+    }
+
+    /// <summary>The row is an incident.create the incident-management profile governs, so it says what
+    /// state the incident was in, and which part of it changed; the exported event never says what the note said.</summary>
+    // The text stays in the row's change column, so the keyed chain seals it; the public event names the field only.
+    [PostgresFact]
+    public async Task AddingANote_RecordsTheIncidentAsItStands_AndExportsNoNoteText()
+    {
+        var world = await ArrangeAsync();
+
+        await world.Notes.AddNoteAsync(world.IncidentId, new CreateIncidentNoteRequest { Content = "Rolled back the deploy" }, "ada");
+
+        var row = await SingleRowAsync(world.ConnectionString, AuditAction.Created);
+        var details = JsonNode.Parse(row.Details!)!;
+
+        Assert.Equal("incident.create", row.EventName);
+        Assert.Equal("open", details["metadata"]!["incident"]!["status"]!.GetValue<string>());
+        Assert.Equal("critical", details["metadata"]!["incident"]!["priority"]!.GetValue<string>());
+        Assert.Equal("update", details["change"]!["type"]!.GetValue<string>());
+        Assert.Equal(["notes"], details["change"]!["changedFields"]!.AsArray().Select(f => f!.GetValue<string>()));
+        Assert.Null(details["change"]!["after"]);
+        Assert.Equal("Rolled back the deploy", row.ChangeAfter);
+        Assert.DoesNotContain("Rolled back", row.Details!, StringComparison.Ordinal);
+
+        await using (var db = PostgresFixture.Context(world.ConnectionString))
+            await new AuditChainService(db, DataProtectionProvider.Create(nameof(IncidentNoteAuditTests)),
+                NullLogger<AuditChainService>.Instance).SealAsync();
+        await using var reader = PostgresFixture.Context(world.ConnectionString);
+        var sealedRow = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.Id == row.Id);
+        var oamEvent = JsonNode.Parse(sealedRow.OamEvent!)!;
+
+        Assert.Equal(["notes"], oamEvent["change"]!["changedFields"]!.AsArray().Select(f => f!.GetValue<string>()));
+        Assert.DoesNotContain("Rolled back", sealedRow.OamEvent!, StringComparison.Ordinal);
     }
 
     /// <summary>The note's own id is still recoverable, just not as the key.</summary>

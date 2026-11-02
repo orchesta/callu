@@ -16,6 +16,7 @@ public class AuditIsNotSampledGuardTests
         "Callu.Infrastructure/Services/AuditLogService.cs",
         "Callu.Infrastructure/Audit/AuditTraceContext.cs",
         "Callu.Infrastructure/Audit/AuditCorrelationScope.cs",
+        "Callu.Infrastructure/Audit/AuditRequestContext.cs",
     ];
 
     [Fact]

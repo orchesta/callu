@@ -14,20 +14,24 @@ public sealed class AuditChainSealQuartzJob(
 {
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         using var scope = scopeFactory.CreateScope();
         var chain = scope.ServiceProvider.GetRequiredService<AuditChainService>();
 
         var result = await chain.SealAsync(context.CancellationToken);
 
-        // Key-ring failure: SealAsync already logged Error and left ProtectedKey alone. Do not mint.
+        // A FailureReason is either the key ring (nothing sealed, ProtectedKey left alone: do not mint)
+        // or a public-chain stop (the keyed chain still sealed). SealAsync has logged it as an Error.
         // IntegrityBroken is written by the daily verify job (and by POST /audit-logs/verify) so a
         // 5-minute seal cadence does not flood the trail with identical rows.
-        if (result.FailureReason is not null)
-            return;
-
         if (result.SealedCount > 0)
             logger.LogInformation(
                 "Audit chain sealed {Count} entry(ies), now through sequence {Sequence}",
                 result.SealedCount, result.LastSequence);
+
+        if (result.PublicSealedCount > 0)
+            logger.LogInformation(
+                "Audit public chain extended over {Count} entry(ies), now through sequence {Sequence}",
+                result.PublicSealedCount, result.PublicHead);
     }
 }

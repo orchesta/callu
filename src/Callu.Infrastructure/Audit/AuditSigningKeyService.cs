@@ -44,19 +44,25 @@ public class AuditSigningKeyService(
     }
 
     public async Task<IReadOnlyList<AuditSigningPublicKeyDto>> GetPublicKeysAsync(
-        CancellationToken cancellationToken = default) =>
-        await db.AuditSigningKeys
+        CancellationToken cancellationToken = default)
+    {
+        // Read first and shape afterwards: the PEM is built in code, which the query cannot translate.
+        var keys = await db.AuditSigningKeys
             .AsNoTracking()
             .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new AuditSigningPublicKeyDto
-            {
-                KeyId = k.KeyId,
-                Algorithm = Ed25519Signer.AlgorithmName,
-                PublicKey = k.PublicKey,
-                CreatedAt = k.CreatedAt,
-                RetiredAt = k.RetiredAt,
-            })
+            .Select(k => new { k.KeyId, k.PublicKey, k.CreatedAt, k.RetiredAt })
             .ToListAsync(cancellationToken);
+
+        return keys.Select(k => new AuditSigningPublicKeyDto
+        {
+            KeyId = k.KeyId,
+            Algorithm = Ed25519Signer.AlgorithmName,
+            PublicKey = k.PublicKey,
+            PublicKeyPem = Ed25519Signer.ToPem(Convert.FromBase64String(k.PublicKey)),
+            CreatedAt = k.CreatedAt,
+            RetiredAt = k.RetiredAt,
+        }).ToList();
+    }
 
     public async Task<AuditSigningPublicKeyDto> RotateAsync(CancellationToken cancellationToken = default)
     {
@@ -74,6 +80,7 @@ public class AuditSigningKeyService(
             KeyId = created.KeyId,
             Algorithm = Ed25519Signer.AlgorithmName,
             PublicKey = created.PublicKey,
+            PublicKeyPem = Ed25519Signer.ToPem(Convert.FromBase64String(created.PublicKey)),
             CreatedAt = created.CreatedAt,
         };
     }

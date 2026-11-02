@@ -34,8 +34,8 @@ public sealed class UnconfirmedVoiceCallSweepQuartzJob(
 
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         var ct = context.CancellationToken;
-        using var correlation = AuditCorrelationScope.Begin($"unconfirmed-voice-call-sweep:{context.FireInstanceId}");
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

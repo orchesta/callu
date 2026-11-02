@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 
@@ -97,15 +97,36 @@ describe("IncidentsList — the bulk shortcuts fire only when they should", () =
     expect(bulkResolveMutate).not.toHaveBeenCalled();
   });
 
-  it("resolves exactly the selected incidents on 'r'", async () => {
+  it("'r' asks how the selected incidents were resolved, then resolves exactly those", async () => {
     const user = userEvent.setup();
     renderList();
     await selectAll(user);
 
     fireEvent.keyDown(window, { key: "r" });
+    expect(bulkResolveMutate).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    await user.selectOptions(within(dialog).getByRole("combobox"), "no-fault");
+    await user.click(within(dialog).getByRole("button", { name: /^Resolve$/i }));
 
     expect(bulkResolveMutate).toHaveBeenCalledTimes(1);
-    expect(bulkResolveMutate.mock.calls[0][0]).toEqual(["inc-1", "inc-2"]);
+    expect(bulkResolveMutate.mock.calls[0][0]).toEqual({
+      ids: ["inc-1", "inc-2"],
+      resolutionType: "no-fault",
+      reason: undefined,
+    });
+    expect(bulkAckMutate).not.toHaveBeenCalled();
+  });
+
+  it("does not acknowledge the selection behind the open resolve dialog", async () => {
+    const user = userEvent.setup();
+    renderList();
+    await selectAll(user);
+
+    fireEvent.keyDown(window, { key: "r" });
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: /^Resolve$/i }), { key: "a", bubbles: true });
+
     expect(bulkAckMutate).not.toHaveBeenCalled();
   });
 

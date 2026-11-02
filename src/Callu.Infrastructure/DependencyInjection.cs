@@ -38,6 +38,15 @@ public static class DependencyInjection
             configuration.GetSection(Audit.AuditSigningOptions.SectionName));
         services.AddScoped<Application.Services.IAuditSigningKeyService, Audit.AuditSigningKeyService>();
 
+        services.AddOptions<Audit.AuditCheckpointOptions>()
+            .Bind(configuration.GetSection(Audit.AuditCheckpointOptions.SectionName))
+            .Validate(
+                o => !o.Enabled || (Uri.TryCreate(o.PublishUrl, UriKind.Absolute, out var url)
+                    && (url.Scheme == Uri.UriSchemeHttp || url.Scheme == Uri.UriSchemeHttps)),
+                "Callu:AuditCheckpoint:PublishUrl must be an absolute http or https URL.")
+            .ValidateOnStart();
+        services.AddHttpClient(Audit.AuditCheckpointService.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+
         services.AddSingleton<CalluMetrics>();
         services.AddHttpContextAccessor();
         services.AddCachingModule(configuration);

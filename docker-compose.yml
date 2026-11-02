@@ -187,7 +187,7 @@ services:
   # NOT exposed to host — only accessible via nginx (web).
   # All periodic jobs run in callu-worker (required) — the API hosts no background timers.
   callu-api:
-    image: orchestalabs/callu-api:1.2.0
+    image: orchestalabs/callu-api:1.3.0
     container_name: callu-api
     restart: unless-stopped
     logging: *default-logging
@@ -240,6 +240,8 @@ services:
       Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
       Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
       Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
+      # Off by default. Set the same on both hosts: the API signs exports, the Worker published checkpoints.
+      Callu__AuditSigning__Enabled: ${AUDIT_SIGNING_ENABLED:-false}
       # The HTTP-SMS client only resolves to public IPs (SSRF guard). Set to true if your SMS
       # gateway lives on a private/LAN address, otherwise those sends are refused.
       CommunicationSettings__AllowPrivateSmsEndpoint: ${ALLOW_PRIVATE_SMS_ENDPOINT:-false}
@@ -290,7 +292,7 @@ services:
 
   # ─── Background worker (escalations, notification retries, health checks, provider registry) ───
   callu-worker:
-    image: orchestalabs/callu-worker:1.2.0
+    image: orchestalabs/callu-worker:1.3.0
     container_name: callu-worker
     restart: unless-stopped
     logging: *default-logging
@@ -334,11 +336,16 @@ services:
       Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
       Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
       Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
+      # Off by default. Set the same on both hosts: the API signs exports, the Worker published checkpoints.
+      Callu__AuditSigning__Enabled: ${AUDIT_SIGNING_ENABLED:-false}
       # Off unless a path is set. When it is on, retention will not delete an audit entry that has
       # not reached the archive yet — see AUDIT_ARCHIVE_PATH in .env.example before enabling it.
       Callu__AuditArchive__Path: ${AUDIT_ARCHIVE_PATH:-}
       Callu__AuditArchive__AfterDays: ${AUDIT_ARCHIVE_AFTER_DAYS:-2}
       Callu__AuditArchive__MaxDaysPerRun: ${AUDIT_ARCHIVE_MAX_DAYS_PER_RUN:-31}
+      # Off unless a URL is set. The Worker POSTs a signed checkpoint there daily at 04:45 UTC.
+      Callu__AuditCheckpoint__PublishUrl: ${AUDIT_CHECKPOINT_PUBLISH_URL:-}
+      Callu__AuditCheckpoint__PublishToken: ${AUDIT_CHECKPOINT_PUBLISH_TOKEN:-}
       # Retention runs on this host only. 0 keeps rows forever, which is the default:
       # every table below grows per incident, so on a small VPS set the ones you need.
       Callu__Retention__NotificationDays: ${RETENTION_NOTIFICATION_DAYS:-0}
@@ -380,7 +387,7 @@ services:
   # ─── Web UI (nginx) ────────────────────────────────────────
   # Single entry point: serves SPA + proxies /api/* to API.
   callu-web:
-    image: orchestalabs/callu-web:1.2.0
+    image: orchestalabs/callu-web:1.3.0
     container_name: callu-web
     restart: unless-stopped
     logging: *default-logging

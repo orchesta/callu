@@ -1,15 +1,19 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Callu.Application.Services;
 using Callu.Domain.Entities;
 using Callu.Domain.Enums;
 using Callu.Infrastructure.Audit;
 using Callu.Infrastructure.Persistence;
 using Callu.Infrastructure.Quartz;
+using Callu.Shared.Models.Audit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 
 namespace Callu.Tests;
 
@@ -89,6 +93,99 @@ public class AuditArchiveTests(PostgresFixture fixture) : IDisposable
         return lines;
     }
 
+    private static List<string> ReadGzipLines(string path)
+    {
+        using var gzip = new GZipStream(File.OpenRead(path), CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip);
+        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+    }
+
+    [PostgresFact]
+    public async Task AClosedDay_IsAlsoWrittenAsItsStoredEvents_InSequenceOrder()
+    {
+        var ctx = await SeededAsync();
+
+        await Archive(ctx).ArchiveAsync(Now);
+
+        var day = DateOnly.FromDateTime(Now.AddDays(-5));
+        var from = day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var lines = ReadGzipLines(Path.Combine(_directory, $"audit-oam-{day:yyyy-MM-dd}.jsonl.gz"));
+        var stored = await ctx.AuditLogs.AsNoTracking()
+            .Where(l => l.CreatedAt >= from && l.CreatedAt < from.AddDays(1))
+            .OrderBy(l => l.Sequence).Select(l => l.OamEvent!).ToListAsync();
+
+        Assert.Equal(2, lines.Count);
+        Assert.Equal(stored, lines);
+
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "manifest.json")))!;
+        Assert.Equal($"audit-oam-{day:yyyy-MM-dd}.jsonl.gz", manifest["archives"]![0]!["oamFile"]!.GetValue<string>());
+    }
+
+    /// <summary>An archived 1.3.0 row carries every field its keyed hash covers, so the hash can be checked from the file.</summary>
+    [PostgresFact]
+    public async Task AnArchivedRow_RecomputesToItsKeyedHash_UnderTheFormItWasSealedWith()
+    {
+        var ctx = await SeededAsync(seal: false);
+        var row = Row(Now.AddDays(-4).AddHours(1));
+        row.TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        row.SpanId = "00f067aa0ba902b7";
+        row.ParentSpanId = "53995c3f42cd8ad8";
+        row.RequestMethod = "POST";
+        row.Details = """{"reason":{"text":"archived with its details"}}""";
+        ctx.Add(row);
+        await ctx.SaveChangesAsync();
+        await Chain(ctx).SealAsync();
+
+        await Archive(ctx).ArchiveAsync(Now);
+
+        var line = ReadGzipLines(Path.Combine(_directory, "audit-2026-07-16.jsonl.gz"))
+            .Single(l => l.Contains(row.Id.ToString("D"), StringComparison.Ordinal));
+        var archived = JsonSerializer.Deserialize<AuditLog>(line, new JsonSerializerOptions
+        {
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        })!;
+        var state = await ctx.AuditChainStates.AsNoTracking().SingleAsync();
+        var key = Convert.FromBase64String(
+            DataProtectionProvider.Create(nameof(AuditArchiveTests)).CreateProtector("Callu.AuditChain.v1")
+                .Unprotect(state.ProtectedKey));
+
+        Assert.Equal(CalluAuditChain.DetailsCanonicalizationId, archived.CanonicalizationVersion);
+        Assert.Equal(archived.RowHash, AuditChainHash.Compute(
+            archived, archived.Sequence!.Value, archived.PrevHash, key,
+            CalluAuditChain.VersionOf(archived.CanonicalizationVersion)));
+    }
+
+    [PostgresFact]
+    public async Task ADayWithRowsOutsideThePublicChain_IsNotArchived()
+    {
+        var ctx = await SeededAsync();
+        var firstDay = Now.AddDays(-5).Date;
+        var oneRow = await ctx.AuditLogs.Where(l => l.CreatedAt >= firstDay && l.CreatedAt < firstDay.AddDays(1))
+            .Select(l => l.Id).FirstAsync();
+        await ctx.AuditLogs.Where(l => l.Id == oneRow)
+            .ExecuteUpdateAsync(u => u.SetProperty(l => l.OamHash, (string?)null));
+
+        var result = await Archive(ctx).ArchiveAsync(Now);
+
+        Assert.Equal(0, result.DaysArchived);
+        Assert.DoesNotContain(Files(), f => f.StartsWith("audit-", StringComparison.Ordinal));
+    }
+
+    [PostgresFact]
+    public async Task IssuedCheckpoints_AreCopiedIntoTheArchive()
+    {
+        var ctx = await SeededAsync();
+        var checkpoints = new AuditCheckpointService(ctx,
+            Substitute.For<IAuditSigningKeyService>(), Substitute.For<IHttpClientFactory>(),
+            Options.Create(new AuditCheckpointOptions()), NullLogger<AuditCheckpointService>.Instance);
+        var checkpoint = await checkpoints.IssueManualAsync("CHG-archive", default);
+
+        await Archive(ctx).ArchiveAsync(Now);
+
+        var path = Path.Combine(_directory, "checkpoints", $"checkpoint-{checkpoint!.HeadSequence:D12}.json");
+        Assert.Equal(checkpoint.Document, File.ReadAllText(path));
+    }
+
     // ---- what gets written -------------------------------------------------
 
     [PostgresFact]
@@ -101,7 +198,11 @@ public class AuditArchiveTests(PostgresFixture fixture) : IDisposable
         Assert.Equal(3, result.DaysArchived);
         Assert.Equal(6, result.RowsArchived);
         Assert.Equal(
-            ["audit-2026-07-15.jsonl.gz", "audit-2026-07-16.jsonl.gz", "audit-2026-07-17.jsonl.gz", "manifest.json"],
+            [
+                "audit-2026-07-15.jsonl.gz", "audit-2026-07-16.jsonl.gz", "audit-2026-07-17.jsonl.gz",
+                "audit-oam-2026-07-15.jsonl.gz", "audit-oam-2026-07-16.jsonl.gz", "audit-oam-2026-07-17.jsonl.gz",
+                "manifest.json",
+            ],
             Files());
     }
 

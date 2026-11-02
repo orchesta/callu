@@ -65,6 +65,7 @@ public sealed class VoiceCallRetryQuartzJob(
 
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         var ct = context.CancellationToken;
 
         using var scope = scopeFactory.CreateScope();

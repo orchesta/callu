@@ -19,7 +19,7 @@ vi.mock("../api/incident.api", () => ({
     reassign: (id: string, targetUserId: string) => reassign(id, targetUserId),
     addNote: (incidentId: string, data: unknown) => addNote(incidentId, data),
     acknowledge: (id: string) => acknowledge(id),
-    resolve: (id: string) => resolve(id),
+    resolve: (id: string, body: unknown) => resolve(id, body),
     update: (id: string, data: unknown) => update(id, data),
   },
 }));
@@ -133,9 +133,9 @@ describe("useCreateIncident — a suppressed incident is not a created one", () 
 /** The counters sit beside the rows on the same screen, so a status change that refreshes only
  * the rows leaves a number the operator can see is wrong. */
 describe("status changes refresh the counters, not only the rows", () => {
-  async function expectCountInvalidation(hook: () => { mutateAsync: (id: string) => Promise<unknown> }) {
+  async function expectCountInvalidation(hook: () => { mutateAsync: (vars: never) => Promise<unknown> }, vars: unknown = "inc-1") {
     const { result } = renderHook(hook, { wrapper });
-    await result.current.mutateAsync("inc-1");
+    await result.current.mutateAsync(vars as never);
 
     expect(invalidatedKeys()).toContainEqual(dashboardKeys.incidentCounts());
     expect(invalidatedKeys()).toContainEqual(dashboardKeys.summaries());
@@ -148,7 +148,7 @@ describe("status changes refresh the counters, not only the rows", () => {
 
   it("resolve invalidates the incident counts and the dashboard summary", async () => {
     resolve.mockImplementation(() => ok(undefined));
-    await expectCountInvalidation(() => useResolveIncident());
+    await expectCountInvalidation(() => useResolveIncident(), { id: "inc-1", resolutionType: "workaround" });
   });
 
   it("investigate invalidates the incident counts and the dashboard summary", async () => {

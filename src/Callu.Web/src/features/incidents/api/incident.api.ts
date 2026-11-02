@@ -22,6 +22,10 @@ import type {
 
 const BASE = '/api/v1/incidents';
 
+export const RESOLUTION_TYPES = ['workaround', 'permanent-fix', 'duplicate', 'false-positive', 'no-fault'] as const;
+export type ResolutionType = (typeof RESOLUTION_TYPES)[number];
+export const MAX_REASON_LENGTH = 500;
+
 /** Reads one create response, in either the current envelope or the older bare-incident 201. */
 // The API now returns the envelope for both outcomes. This stays because the SPA and the API are
 // separate containers that restart independently, so a new SPA can briefly talk to an older API.
@@ -60,17 +64,17 @@ export const incidentApi = {
     acknowledge: (id: string) =>
         apiClient.post<{ message: string }>(`${BASE}/${id}/acknowledge`),
 
-    /** Resolve an incident */
-    resolve: (id: string) =>
-        apiClient.post<{ message: string }>(`${BASE}/${id}/resolve`),
+    /** Resolve an incident, saying how it was resolved */
+    resolve: (id: string, body: { resolutionType: ResolutionType; reason?: string }) =>
+        apiClient.post<{ message: string }>(`${BASE}/${id}/resolve`, body),
 
     /** Close a resolved incident (terminal — cannot be transitioned further). */
-    close: (id: string) =>
-        apiClient.post<{ message: string }>(`${BASE}/${id}/close`),
+    close: (id: string, reason: string) =>
+        apiClient.post<{ message: string }>(`${BASE}/${id}/close`, { reason }),
 
     /** Reopen a resolved or closed incident back to Open. */
-    reopen: (id: string) =>
-        apiClient.post<{ message: string }>(`${BASE}/${id}/reopen`),
+    reopen: (id: string, reason: string) =>
+        apiClient.post<{ message: string }>(`${BASE}/${id}/reopen`, { reason }),
 
     /** Manually escalate an incident */
     escalate: (id: string, reason?: string) =>
@@ -84,9 +88,9 @@ export const incidentApi = {
     bulkAcknowledge: (incidentIds: string[]) =>
         apiClient.post<{ succeeded: number; failed: number; total: number }>(`${BASE}/bulk/acknowledge`, { incidentIds }),
 
-    /** Bulk resolve multiple incidents */
-    bulkResolve: (incidentIds: string[]) =>
-        apiClient.post<{ succeeded: number; failed: number; total: number }>(`${BASE}/bulk/resolve`, { incidentIds }),
+    /** Bulk resolve multiple incidents with one resolution type */
+    bulkResolve: (incidentIds: string[], resolutionType: ResolutionType, reason?: string) =>
+        apiClient.post<{ succeeded: number; failed: number; total: number }>(`${BASE}/bulk/resolve`, { incidentIds, resolutionType, reason }),
 
     /** Get all notes for an incident */
     getNotes: (incidentId: string) =>
