@@ -16,23 +16,23 @@
     <PackageReference Include="Mapster.DependencyInjection" Version="10.0.10" />
     <!-- Held at the floor SignalR.StackExchangeRedis asks for (the only package that wants MessagePack
          here); raise both in lockstep with it, or restore fails NU1605. -->
-    <PackageReference Include="MessagePack" Version="2.5.302" />
-    <PackageReference Include="MessagePack.Annotations" Version="2.5.302" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="MessagePack" Version="2.5.303" />
+    <PackageReference Include="MessagePack.Annotations" Version="2.5.303" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.15" />
     <!-- Both hosts wire Redis through Hosting/CalluRedisSetup, so the key ring and backplane
          packages belong to the shared layer rather than being re-declared per host. -->
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.15" />
     <!-- The outbox, inbox and consumer loop are written here, on the bare client. -->
     <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.7.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.7.0" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.19.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
