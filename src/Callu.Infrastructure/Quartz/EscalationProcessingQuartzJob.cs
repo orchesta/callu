@@ -13,6 +13,7 @@ public sealed class EscalationProcessingQuartzJob(
 {
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         try
         {
             using var scope = scopeFactory.CreateScope();

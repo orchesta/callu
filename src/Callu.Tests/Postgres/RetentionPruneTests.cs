@@ -1,5 +1,8 @@
 using Callu.Domain.Entities;
+using Callu.Domain.Enums;
+using Callu.Infrastructure.Audit;
 using Callu.Infrastructure.Quartz;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -241,6 +244,70 @@ public class RetentionPruneTests(PostgresFixture pg)
                 db.AuditLogs, days: 30, now, CancellationToken.None, batchSize: 2, maxRows: 4);
 
             Assert.Equal(4, deleted);
+        }
+    }
+
+    /// <summary>Retention never removes a row the public chain has not reached.</summary>
+    // The public chain's next row must be the one after its last; deleting that row stops it for good.
+    [PostgresFact]
+    public async Task AuditPruning_LeavesRowsTheOpenAuditModelChainHasNotReached()
+    {
+        var cs = await pg.CreateDatabaseAsync();
+        await PostgresFixture.MigrateToHeadAsync(cs);
+
+        var now = DateTime.UtcNow;
+
+        await using (var db = PostgresFixture.Context(cs))
+        {
+            for (var i = 0; i < 6; i++)
+                db.AuditLogs.Add(new AuditLog
+                {
+                    Id = Guid.NewGuid(), ResourceType = "Test", Action = AuditAction.Login,
+                    ActorId = "u1", ActorDisplayName = "Ada", ResourceId = Guid.NewGuid(),
+                    CreatedAt = now.AddDays(-40 - i),
+                });
+            await db.SaveChangesAsync();
+
+            var chain = new AuditChainService(db, DataProtectionProvider.Create(nameof(RetentionPruneTests)),
+                NullLogger<AuditChainService>.Instance);
+            await chain.SealAsync();
+        }
+
+        // The public chain is rewound to row 3, as if rows 4..6 were held back behind a tampered row.
+        await using (var db = PostgresFixture.Context(cs))
+        {
+            var third = await db.AuditLogs.AsNoTracking().FirstAsync(l => l.Sequence == 3);
+            await db.AuditLogs.Where(l => l.Sequence > 3)
+                .ExecuteUpdateAsync(u => u.SetProperty(l => l.OamHash, (string?)null));
+            await db.AuditChainLeaves.Where(l => l.Sequence > 3).ExecuteDeleteAsync();
+            await db.AuditChainStates.ExecuteUpdateAsync(u => u
+                .SetProperty(c => c.OamLastSequence, 3L)
+                .SetProperty(c => c.OamLastHash, third.OamHash));
+        }
+
+        await using (var db = PostgresFixture.Context(cs))
+        {
+            var deleted = await RetentionPruneQuartzJob.PruneTableAsync(
+                db.AuditLogs, days: 30, now, CancellationToken.None,
+                oldestFirst: e => e.Sequence!, onlyWhere: RetentionPruneQuartzJob.PublicChainRows);
+
+            Assert.Equal(3, deleted);
+        }
+
+        await using (var db = PostgresFixture.Context(cs))
+        {
+            var left = await db.AuditLogs.IgnoreQueryFilters()
+                .Select(a => a.Sequence!.Value).OrderBy(v => v).ToListAsync();
+            Assert.Equal(new long[] { 4, 5, 6 }, left);
+
+            var chain = new AuditChainService(db, DataProtectionProvider.Create(nameof(RetentionPruneTests)),
+                NullLogger<AuditChainService>.Instance);
+            await chain.NotePrunedAsync();
+            var result = await chain.SealAsync();
+
+            Assert.Null(result.FailureReason);
+            Assert.Equal(3, result.PublicSealedCount);
+            Assert.Equal(6, result.PublicHead);
         }
     }
 }

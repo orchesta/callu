@@ -36,6 +36,19 @@ public class AuditChainCanonicalizationTests(PostgresFixture fixture)
         RequestId = "0HN7C1QK2R3S4:00000003",
     };
 
+    private static int _next;
+
+    /// <summary>A fresh row, each one a minute after the last, so sealing order follows creation order.</summary>
+    private static AuditLog NewRow() => Row(Interlocked.Increment(ref _next));
+
+    private static async Task<byte[]> ChainKeyAsync(ApplicationDbContext ctx)
+    {
+        var state = await ctx.AuditChainStates.SingleAsync();
+        return Convert.FromBase64String(
+            DataProtectionProvider.Create(nameof(AuditChainCanonicalizationTests)).CreateProtector("Callu.AuditChain.v1")
+                .Unprotect(state.ProtectedKey));
+    }
+
     private static AuditChainService Service(ApplicationDbContext ctx, string ring = "canon") =>
         new(ctx, DataProtectionProvider.Create(ring), NullLogger<AuditChainService>.Instance);
 
@@ -53,6 +66,9 @@ public class AuditChainCanonicalizationTests(PostgresFixture fixture)
 
         var chain = Service(ctx);
         await chain.SealAsync();
+
+        // The sealer clears the context's tracker between batches, so read the row back as sealed.
+        row = await ctx.AuditLogs.SingleAsync(l => l.Id == row.Id);
 
         // Re-sealed by hand the way the previous build did it: the older field set, and no version
         // recorded, which is exactly what its rows look like after an upgrade.
@@ -146,5 +162,57 @@ public class AuditChainCanonicalizationTests(PostgresFixture fixture)
         await ctx.SaveChangesAsync();
 
         Assert.Equal(5, await ctx.AuditLogs.CountAsync(l => l.Sequence == null));
+    }
+
+    [PostgresFact]
+    public async Task ARowSealedUnderV3_StillVerifies_AfterRowsSealedUnderV4()
+    {
+        var cs = await fixture.CreateDatabaseAsync();
+        await PostgresFixture.MigrateToHeadAsync(cs);
+        await using var ctx = PostgresFixture.Context(cs);
+        var chain = Service(ctx, nameof(AuditChainCanonicalizationTests));
+
+        ctx.AuditLogs.Add(NewRow());
+        await ctx.SaveChangesAsync();
+        await chain.SealAsync();
+
+        // Re-seal the first row as a 1.2.0 Worker would have: under v3, which has no details field.
+        var first = await ctx.AuditLogs.SingleAsync();
+        var key = await ChainKeyAsync(ctx);
+        first.CanonicalizationVersion = CalluAuditChain.CorrelatedCanonicalizationId;
+        first.RowHash = AuditChainHash.Compute(first, 1, null, key, CalluAuditChain.CorrelatedCanonicalizationId);
+        var state = await ctx.AuditChainStates.SingleAsync();
+        state.LastHash = first.RowHash;
+        await ctx.SaveChangesAsync();
+
+        var second = NewRow();
+        second.Details = """{"authorization":{"decision":"not-applicable"}}""";
+        ctx.AuditLogs.Add(second);
+        await ctx.SaveChangesAsync();
+        await chain.SealAsync();
+
+        Assert.Equal(CalluAuditChain.DetailsCanonicalizationId,
+            (await ctx.AuditLogs.SingleAsync(l => l.Id == second.Id)).CanonicalizationVersion);
+        Assert.True((await chain.VerifyAsync()).Intact);
+    }
+
+    [PostgresFact]
+    public async Task EditingDetailsAfterSealing_BreaksTheRow()
+    {
+        var cs = await fixture.CreateDatabaseAsync();
+        await PostgresFixture.MigrateToHeadAsync(cs);
+        await using var ctx = PostgresFixture.Context(cs);
+        var chain = Service(ctx, nameof(AuditChainCanonicalizationTests));
+
+        var row = NewRow();
+        row.Details = """{"reason":{"text":"original"}}""";
+        ctx.AuditLogs.Add(row);
+        await ctx.SaveChangesAsync();
+        await chain.SealAsync();
+
+        await ctx.AuditLogs.Where(l => l.Id == row.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(l => l.Details, """{"reason":{"text":"edited"}}"""));
+
+        Assert.False((await chain.VerifyAsync()).Intact);
     }
 }

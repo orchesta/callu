@@ -165,7 +165,7 @@ public sealed class CalluVoiceCallbackPersistence(
         else if (outcome.Status == CallStatus.Escalated)
         {
             audit.Add((AuditAction.Escalated, null, null,
-                $"Escalation requested by keypress on the call to {recipient}"
+                "Escalation requested by keypress on the call"
                 + (incidentWasTerminal ? $"; the incident was already {incident.Status}" : string.Empty)));
 
             if (incidentWasTerminal)
@@ -318,9 +318,11 @@ public sealed class CalluVoiceCallbackPersistence(
         IncidentTimelineEvent timeline,
         CancellationToken cancellationToken)
     {
+        // These lines become audit summaries, which travel in the exported event: they say what the
+        // key asked for, never who was called. The timeline entries add the recipient themselves.
         var how = status == CallStatus.ConferenceRequested
-            ? $"Keypress asking to be brought in on the call to {recipient}"
-            : $"Acknowledged by keypress on the call to {recipient}";
+            ? "Keypress asking to be brought in on the call"
+            : "Acknowledged by keypress on the call";
 
         if (incident.Status.IsTerminal())
         {
@@ -354,7 +356,7 @@ public sealed class CalluVoiceCallbackPersistence(
                     CreatedAt = DateTime.UtcNow,
                     EventType = TimelineEventType.CallAcknowledged,
                     Title = "Incident acknowledged on the call",
-                    Description = $"{how}, which also took the incident."
+                    Description = $"{how} to {recipient}, which also took the incident."
                 });
             }
         }
@@ -478,7 +480,7 @@ public sealed class CalluVoiceCallbackPersistence(
     }
 
     private async Task WriteNobodyInvitedAuditAsync(
-        Guid incidentId, Actor actor, string recipient, CancellationToken cancellationToken)
+        Guid incidentId, Actor actor, CancellationToken cancellationToken)
     {
         try
         {
@@ -487,7 +489,7 @@ public sealed class CalluVoiceCallbackPersistence(
 
             await audit.LogAsync(
                 actor.UserId, AuditAction.ConferenceInviteReachedNobody, "Incident", incidentId.ToString(),
-                description: $"{recipient} asked to be brought into a conference for this incident, and nobody was invited.",
+                description: "The person on the call asked to be brought into a conference for this incident, and nobody was invited.",
                 cancellationToken: cancellationToken);
         }
         catch (Exception ex)
@@ -584,7 +586,7 @@ public sealed class CalluVoiceCallbackPersistence(
                 actor,
                 cancellationToken);
 
-            await WriteNobodyInvitedAuditAsync(incidentId, actor, recipient, cancellationToken);
+            await WriteNobodyInvitedAuditAsync(incidentId, actor, cancellationToken);
             return;
         }
 

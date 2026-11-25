@@ -65,19 +65,20 @@ beforeEach(() => {
 });
 
 describe("incident audit trail", () => {
-  // Notes are recorded against the incident itself, and nothing has ever written an IncidentNote row
-  // carrying an incident id, so asking for that type only narrows the trail to nothing.
-  it("asks for this incident under every type its record is written against", () => {
+  // A note is filed under its own id and names the incident as related, so the trail asks for that
+  // type and asks the search to follow related resources; without the second, the first finds nothing.
+  it("asks for this incident under every type its record is written against, following related rows", () => {
     renderTrail();
 
     expect(lastFilter().resourceId).toBe(INCIDENT_ID);
     expect(lastFilter().resourceTypes).toEqual([
       "Incident",
+      "IncidentNote",
       "Escalation",
       "NotificationChannel",
       "AuditLog",
     ]);
-    expect(lastFilter().resourceTypes).not.toContain("IncidentNote");
+    expect(lastFilter().includeRelated).toBe(true);
     expect(lastFilter().pageSize).toBe(100);
   });
 

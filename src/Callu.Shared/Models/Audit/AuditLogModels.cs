@@ -26,6 +26,9 @@ public class AuditLogDto
     public string? CorrelationId { get; set; }
     public string? TraceId { get; set; }
     public string? SpanId { get; set; }
+    public string? ParentSpanId { get; set; }
+    public string? RequestMethod { get; set; }
+    public string? Details { get; set; }
 
     /// <summary>Position in the tamper-evidence chain, null until the row is sealed.</summary>
     public long? Sequence { get; set; }
@@ -57,6 +60,10 @@ public class AuditLogFilter
     public bool SortAscending { get; set; }
 
     public Guid? ResourceId { get; set; }
+
+    /// <summary>Also rows whose details name the resource as a related resource.</summary>
+    public bool IncludeRelated { get; set; }
+
     public string? RequestIpAddress { get; set; }
 
     /// <summary>Matches the actor name, the summary, or the request route.</summary>

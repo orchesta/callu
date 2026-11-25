@@ -18,6 +18,7 @@ export const AUDIT_ACTIONS = [
   'IntegrityVerified', 'IntegrityBroken',
   'VoiceCallLost', 'VoiceCallNeverConfirmed', 'ConferenceInviteReachedNobody',
   'ServiceActionExecuted', 'ServiceActionFailed',
+  'PublishFailed',
 ] as const;
 
 export type AuditActionValue = (typeof AUDIT_ACTIONS)[number];
@@ -70,6 +71,8 @@ export interface AuditLogSearchFilter {
   /** Narrows to any of the listed resource types. */
   resourceTypes?: string[];
   resourceId?: string;
+  /** Also rows whose details name the resource as a related resource. */
+  includeRelated?: boolean;
   requestIpAddress?: string;
   /** Matches the actor name, the summary, or the request route. */
   query?: string;

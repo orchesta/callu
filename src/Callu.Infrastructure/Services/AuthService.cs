@@ -67,7 +67,8 @@ public class AuthService(
             var dummyHash = _dummyPasswordHash ??= hasher.HashPassword(DummyTimingUser, DummyTimingPassword);
             _ = hasher.VerifyHashedPassword(DummyTimingUser, dummyHash, request.Password);
 
-            await TryAuditAsync(null, AuditAction.LoginFailed, $"No account for {request.Email}", cancellationToken);
+            // The summary travels in the exported event, so it says what happened, not which address was tried.
+            await TryAuditAsync(null, AuditAction.LoginFailed, "No account for the e-mail address given", cancellationToken);
 
             return new AuthResponse
             {

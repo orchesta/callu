@@ -211,6 +211,15 @@ public static class WorkerQuartzExtensions
                 j => j
                     .WithIdentity(CalluQuartzJobKeys.AuditChainVerifyJob)
                     .DisallowConcurrentExecution());
+
+            q.ScheduleJob<AuditCheckpointQuartzJob>(
+                t => t
+                    .WithIdentity(CalluQuartzJobKeys.AuditCheckpointTrigger)
+                    .WithCronSchedule("0 45 4 * * ?", x => x.InTimeZone(TimeZoneInfo.Utc))
+                    .WithDescription("Publish the audit chain's head (04:45 UTC, after verify; off unless Callu:AuditCheckpoint:PublishUrl set)"),
+                j => j
+                    .WithIdentity(CalluQuartzJobKeys.AuditCheckpointJob)
+                    .DisallowConcurrentExecution());
         });
 
         services.AddQuartzHostedService(o =>

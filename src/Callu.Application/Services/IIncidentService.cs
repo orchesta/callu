@@ -51,14 +51,29 @@ public interface IIncidentService
     Task ResolveIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Resolve an incident, recording how it was resolved and why.
+    /// </summary>
+    Task ResolveIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Close a resolved incident. Terminal — no further workflow transitions.
     /// </summary>
     Task CloseIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Close a resolved incident, recording why.
+    /// </summary>
+    Task CloseIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reopen a resolved or closed incident back to Open. Escalation is NOT restarted automatically.
     /// </summary>
     Task ReopenIncidentAsync(Guid incidentId, string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reopen a resolved or closed incident, recording why.
+    /// </summary>
+    Task ReopenIncidentAsync(Guid incidentId, string userId, IncidentTransitionNote note, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Delete an incident (soft delete)

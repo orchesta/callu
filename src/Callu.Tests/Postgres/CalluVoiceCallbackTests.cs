@@ -259,6 +259,8 @@ public class CalluVoiceCallbackTests(PostgresFixture pg)
         Assert.Equal("Status: Open", row.ChangeBefore);
         Assert.Equal("Status: Acknowledged", row.ChangeAfter);
         Assert.Contains("keypress", row.Summary ?? "", StringComparison.OrdinalIgnoreCase);
+        // The summary travels in the exported event, so it never carries the number called.
+        Assert.DoesNotContain(Phone, row.Summary ?? "", StringComparison.Ordinal);
 
         await using var db = PostgresFixture.Context(world.ConnectionString);
         var incident = await db.Incidents.AsNoTracking().FirstAsync(i => i.Id == world.IncidentId);

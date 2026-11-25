@@ -59,6 +59,15 @@ public static class AuditChainHash
             fields["traceId"] = entry.TraceId;
         }
 
+        // Added in v4: what the writer knew beyond the flat fields, sealed like everything else, so a
+        // reason or an authorization decision cannot be edited after the fact without breaking the row.
+        if (version == CalluAuditChain.DetailsCanonicalizationId)
+        {
+            fields["details"] = entry.Details;
+            fields["parentSpanId"] = entry.ParentSpanId;
+            fields["requestMethod"] = entry.RequestMethod;
+        }
+
         var jsonObject = new JsonObject();
         foreach (var (key, value) in fields)
             jsonObject[key] = value is null ? null : JsonValue.Create(value);

@@ -1,6 +1,7 @@
 using Mapster;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
@@ -15,7 +16,8 @@ public sealed class OrganizationSettingsService(
     ITransactionManager transactionManager,
     IConfiguration configuration,
     IAuditLogService auditLogService,
-    ILogger<OrganizationSettingsService> logger) : IOrganizationSettingsService
+    ILogger<OrganizationSettingsService> logger,
+    ICurrentUserService? currentUser = null) : IOrganizationSettingsService
 {
     private const string DefaultBaseUrl = "http://localhost:3000";
 
@@ -54,7 +56,7 @@ public sealed class OrganizationSettingsService(
             entity.UpdatedAt = DateTime.UtcNow;
 
             await auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "OrganizationSettings", entity.Id.ToString(),
+                currentUser?.UserId, AuditAction.SettingsChanged, "OrganizationSettings", entity.Id.ToString(),
                 oldValues: before,
                 newValues: $"name={entity.OrganizationName}; tz={entity.DefaultTimezone}; "
                     + $"culture={entity.DefaultCulture}; baseUrl={entity.BaseUrl}; email={entity.EmailNotificationsEnabled}",

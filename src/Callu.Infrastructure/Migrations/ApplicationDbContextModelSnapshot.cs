@@ -132,6 +132,14 @@ namespace Callu.Infrastructure.Migrations
                     b.Property<long?>("LastSequence")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("OamFileName")
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<string>("OamSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<int>("RowCount")
                         .HasColumnType("integer");
 
@@ -164,11 +172,30 @@ namespace Callu.Infrastructure.Migrations
                     b.ToTable("AuditArchiveRuns");
                 });
 
+            modelBuilder.Entity("Callu.Domain.Entities.AuditChainLeaf", b =>
+                {
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Sequence");
+
+                    b.ToTable("AuditChainLeaves");
+                });
+
             modelBuilder.Entity("Callu.Domain.Entities.AuditChainState", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ChainId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -185,6 +212,13 @@ namespace Callu.Infrastructure.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.Property<long>("LastSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OamLastHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("OamLastSequence")
                         .HasColumnType("bigint");
 
                     b.Property<string>("ProtectedKey")
@@ -215,6 +249,94 @@ namespace Callu.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AuditChainStates");
+                });
+
+            modelBuilder.Entity("Callu.Domain.Entities.AuditCheckpoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnchorReference")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("AnchorType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ChainId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Document")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("EventCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HeadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("HeadSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("IssuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("PublishAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RootDocument")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RootHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "HeadSequence");
+
+                    b.ToTable("AuditCheckpoints");
                 });
 
             modelBuilder.Entity("Callu.Domain.Entities.AuditLog", b =>
@@ -258,6 +380,9 @@ namespace Callu.Infrastructure.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("Details")
+                        .HasColumnType("text");
+
                     b.Property<string>("EventCategory")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -271,8 +396,19 @@ namespace Callu.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("OamEvent")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OamHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<int>("Outcome")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ParentSpanId")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<string>("PrevHash")
                         .HasMaxLength(64)
@@ -285,6 +421,10 @@ namespace Callu.Infrastructure.Migrations
                     b.Property<string>("RequestIpAddress")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("RequestMethod")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<string>("RequestRoute")
                         .HasMaxLength(500)
@@ -354,6 +494,9 @@ namespace Callu.Infrastructure.Migrations
                         .HasFilter("\"Sequence\" IS NULL");
 
                     b.HasIndex("ResourceType", "ResourceId");
+
+                    b.HasIndex(new[] { "Sequence" }, "IX_AuditLogs_Sequence_PublicChainPending")
+                        .HasFilter("\"Sequence\" IS NOT NULL AND \"OamHash\" IS NULL");
 
                     b.ToTable("AuditLogs");
                 });

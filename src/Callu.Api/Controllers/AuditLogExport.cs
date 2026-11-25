@@ -1,5 +1,8 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Nodes;
+using Callu.Infrastructure.Audit.OpenAuditModel;
+using Callu.Shared.Audit;
 using Callu.Shared.Models.Audit;
 
 namespace Callu.Api.Controllers;
@@ -66,24 +69,34 @@ public static class AuditLogExport
         await writer.FlushAsync(cancellationToken);
     }
 
-    private const string ApplicationName = "Callu";
-
-    /// <summary>Each line is a full OpenAuditModel v0.1 event, not a raw copy of the DB row — this
-    /// is the format an outside consumer (SIEM, another OpenAuditModel-speaking tool) can validate
-    /// against the published schema directly.</summary>
+    /// <summary>Each line is the event stored when the row was sealed, signed here when a key is active.</summary>
+    // The signature sits outside the digest, so adding it now leaves the stored hash true.
     public static async Task WriteJsonLinesAsync(
         Stream output,
-        IAsyncEnumerable<AuditLogDto> rows,
-        string environment,
+        IAsyncEnumerable<string> storedEvents,
         IOpenAuditSigner? signer,
         CancellationToken cancellationToken)
     {
         await using var writer = new StreamWriter(output, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: true);
 
-        await foreach (var row in rows.WithCancellation(cancellationToken))
+        await foreach (var stored in storedEvents.WithCancellation(cancellationToken))
         {
-            var envelope = OpenAuditEventMapper.ToEnvelope(row, ApplicationName, environment);
-            await writer.WriteLineAsync(OpenAuditEventSerializer.ToJsonLine(envelope, signer));
+            if (signer is null)
+            {
+                await writer.WriteLineAsync(stored);
+                continue;
+            }
+
+            var document = JsonNode.Parse(stored)!.AsObject();
+            var signature = new JsonObject
+            {
+                ["algorithm"] = signer.Algorithm,
+                ["value"] = signer.Sign(OpenAuditDigest.Input(document)),
+            };
+            if (signer.KeyId is { Length: > 0 } keyId) signature["keyId"] = keyId;
+            document["integrity"]!.AsObject()["signature"] = signature;
+
+            await writer.WriteLineAsync(JsonCanonicalizer.Canonicalize(document.ToJsonString()));
         }
 
         await writer.FlushAsync(cancellationToken);

@@ -37,6 +37,7 @@ public class VoiceCallStuckSweepQuartzJobTests
     private static IJobExecutionContext JobContext()
     {
         var context = Substitute.For<IJobExecutionContext>();
+        context.JobDetail.Key.Returns(new JobKey("test-job"));
         context.CancellationToken.Returns(CancellationToken.None);
         return context;
     }
@@ -216,9 +217,12 @@ public class VoiceCallStuckSweepQuartzJobTests
             Assert.Contains(timeline, e => e.EventType == TimelineEventType.CallFailed);
         }
 
+        // The summary travels in the exported event, so it never carries the number called.
         await world.Audit.Received(1).LogAsync(
             Arg.Any<string?>(), AuditAction.VoiceCallLost, "Incident", world.IncidentId.ToString(),
-            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Is<string?>(summary => summary != null && !summary.Contains(Phone)),
+            Arg.Any<CancellationToken>());
 
         // The incident still gets a further attempt: the ordinary retry sweep dials again.
         var provider = VoiceProvider(out var handler);

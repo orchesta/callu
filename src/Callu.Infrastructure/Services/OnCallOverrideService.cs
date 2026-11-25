@@ -109,10 +109,13 @@ public class OnCallOverrideService(
             await overrideRepo.AddAsync(overrideEntity, cancellationToken);
 
             // An override decides who a page reaches, so who created it and for whom is auditable.
+            // The reason is text a person typed, so it stays in the change column, which is not
+            // exported; the summary travels in the event and only says what happened.
             await auditLogService.LogAsync(
                 request.OverrideUserId, AuditAction.OverrideCreated, "OnCallOverride", overrideEntity.Id.ToString(),
-                newValues: $"schedule={request.ScheduleId}; user={request.OverrideUserId}; {request.StartUtc:O}..{request.EndUtc:O}",
-                description: request.Reason,
+                newValues: $"schedule={request.ScheduleId}; user={request.OverrideUserId}; {request.StartUtc:O}..{request.EndUtc:O}"
+                    + (string.IsNullOrWhiteSpace(request.Reason) ? string.Empty : $"; reason={request.Reason}"),
+                description: "On-call override created",
                 cancellationToken: cancellationToken);
 
             logger.LogInformation("Created on-call override {OverrideId} for schedule {ScheduleId}", overrideEntity.Id, request.ScheduleId);

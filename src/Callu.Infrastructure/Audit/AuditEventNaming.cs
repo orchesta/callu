@@ -49,7 +49,7 @@ public static partial class AuditEventNaming
         AuditAction.Cascaded => "cascade",
         AuditAction.Submitted => "submit",
         AuditAction.Rejected => "reject",
-        AuditAction.Published => "publish",
+        AuditAction.Published or AuditAction.PublishFailed => "publish",
         AuditAction.Locked => "lock",
         AuditAction.IntegrityVerified or AuditAction.IntegrityBroken => "integrity-verify",
         AuditAction.VoiceCallLost => "voice-call-lost",
@@ -61,9 +61,9 @@ public static partial class AuditEventNaming
 
     public static string ToEventCategory(string resourceType) => resourceType switch
     {
-        "Incident" or "Escalation" => "incident-management",
+        "Incident" or "Escalation" or "IncidentNote" => "incident-management",
         "User" or "Team" => "identity-and-access-management",
-        "AuditLog" => "audit-management",
+        "AuditLog" or "AuditCheckpoint" => "audit-management",
         _ => "platform-administration",
     };
 
@@ -71,6 +71,7 @@ public static partial class AuditEventNaming
     {
         AuditAction.LoginFailed
             or AuditAction.DispatchFailed
+            or AuditAction.PublishFailed
             or AuditAction.EscalationDispatchFailed
             or AuditAction.EscalationTriggerFailed
             or AuditAction.EscalationNobodyReached
@@ -80,13 +81,16 @@ public static partial class AuditEventNaming
             or AuditAction.VoiceCallLost
             or AuditAction.VoiceCallNeverConfirmed
             or AuditAction.ConferenceInviteReachedNobody
-            or AuditAction.ServiceActionFailed
-            or AuditAction.Rejected => AuditOutcome.Failure,
+            or AuditAction.ServiceActionFailed => AuditOutcome.Failure,
         AuditAction.EscalationDispatchPartiallyFailed
             or AuditAction.EscalationChannelsPartiallySilent
             or AuditAction.EscalationDispatchFailing => AuditOutcome.Partial,
+        // Rejected lands here: a rejected postmortem is a decision that was carried out, not an operation that failed.
         _ => AuditOutcome.Success,
     };
+
+    /// <summary>The resource type as OpenAuditModel's vocabulary token: the same slug the event name uses.</summary>
+    public static string ToResourceType(string resourceType) => Slugify(resourceType);
 
     private static string Slugify(string pascalCase) =>
         PascalBoundary().Replace(pascalCase, "-").TrimStart('-').ToLowerInvariant();

@@ -30,6 +30,7 @@ import { useDebouncedValue } from "@/shared/hooks/use-debounced-value";
 import type { IncidentListItem, IncidentFilter } from "../types/incident.types";
 import { useIncidents, useBulkAcknowledge, useBulkResolve } from "../hooks/use-incidents";
 import { CreateIncidentDialog } from "./create-incident-dialog";
+import { TransitionDialog, type TransitionInput } from "./transition-dialog";
 import { useAuth } from "@/shared/auth/auth.context";
 import { canManageIncidents } from "@/shared/auth";
 import { useIncidentCounts } from "@/features/dashboard/hooks/use-dashboard";
@@ -226,6 +227,7 @@ export function IncidentsList() {
 
   const bulkAck = useBulkAcknowledge();
   const bulkResolve = useBulkResolve();
+  const [bulkResolving, setBulkResolving] = useState(false);
 
   // Debounced into the key rather than taken straight from the input: `searchQuery` reaches an
   // unindexed scan over every incident, on the same database the paging path is using.
@@ -330,11 +332,21 @@ export function IncidentsList() {
 
   const runBulkResolve = useCallback(() => {
     if (selectedIds.size === 0) return;
-    bulkResolve.mutate([...selectedIds], { onSuccess: () => setSelectedIds(new Set()) });
-  }, [bulkResolve, selectedIds]);
+    setBulkResolving(true);
+  }, [selectedIds]);
+
+  const confirmBulkResolve = (input: TransitionInput) => {
+    if (selectedIds.size === 0) return;
+    bulkResolve.mutate(
+      { ids: [...selectedIds], resolutionType: input.resolutionType!, reason: input.reason },
+      { onSuccess: () => { setSelectedIds(new Set()); setBulkResolving(false); } },
+    );
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The dialog owns the keyboard while it is open; the selection behind it must not be acted on.
+      if (bulkResolving) return;
       if (e.defaultPrevented || isTypingTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (selectedIds.size === 0) return;
@@ -351,7 +363,7 @@ export function IncidentsList() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedIds, bulkAck.isPending, bulkResolve.isPending, runBulkAck, runBulkResolve]);
+  }, [selectedIds, bulkResolving, bulkAck.isPending, bulkResolve.isPending, runBulkAck, runBulkResolve]);
 
   return (
     <div className="p-6 space-y-6">
@@ -372,6 +384,12 @@ export function IncidentsList() {
       />
 
       {isCreateOpen && <CreateIncidentDialog open onOpenChange={closeCreate} />}
+      <TransitionDialog
+        mode={bulkResolving ? "resolve" : null}
+        pending={bulkResolve.isPending}
+        onCancel={() => setBulkResolving(false)}
+        onConfirm={confirmBulkResolve}
+      />
 
       <div className="flex flex-col sm:flex-row gap-4">
         <SearchInput

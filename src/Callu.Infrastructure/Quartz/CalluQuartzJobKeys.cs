@@ -54,4 +54,6 @@ public static class CalluQuartzJobKeys
 
     public static readonly JobKey AuditChainVerifyJob = new("AuditChainVerifyJob", Group);
     public static readonly TriggerKey AuditChainVerifyTrigger = new("AuditChainVerifyTrigger", Group);
+    public static readonly JobKey AuditCheckpointJob = new("AuditCheckpointJob", Group);
+    public static readonly TriggerKey AuditCheckpointTrigger = new("AuditCheckpointTrigger", Group);
 }

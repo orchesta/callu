@@ -136,6 +136,8 @@ public class ValidatorColumnParityGuardTests
 
         new("BindIntegrationServiceRequest", null, Command + " Carries only a target service id; nothing it holds becomes a column value."),
         new("EscalateRequest", null, Command + " The reason does reach IncidentTimelineEvent.Description, which is a bounded column."),
+        new("ResolveIncidentRequest", null, TransitionNote),
+        new("IncidentTransitionRequest", null, TransitionNote),
         new("ReassignRequest", null, Command),
         new("ReorderStepsRequest", null, Command),
         new("SetProviderRequest", null, Command),
@@ -273,6 +275,14 @@ public class ValidatorColumnParityGuardTests
         + "validator, so an operator's long manual-escalation reason is one of the ways that column "
         + "overflows. Bounding it here and clamping there are both wanted; both are product code.";
 
+    private const string TransitionNote =
+        "The optional body of a resolve, close or reopen. Its fields land in the audit row's details, "
+        + "not in a column of their own, and IncidentTransitionNote.FromInput bounds them.";
+
+    private const string TransitionNoteBound =
+        "Bounded by IncidentTransitionNote.FromInput (a resolution-type allowlist, a 500-character "
+        + "reason), which the controller calls on every request; this guard sees only attributes and validators.";
+
     private const string PersistedTail =
         "The long tail: the field becomes a bounded column, so a long enough value is a 22001 and a "
         + "500. Individually small, and best swept as one batch rather than one DTO at a time — which "
@@ -285,6 +295,10 @@ public class ValidatorColumnParityGuardTests
 
     private static readonly Unbounded[] KnownUnbounded =
     [
+        new("ResolveIncidentRequest", "ResolutionType", TransitionNoteBound),
+        new("ResolveIncidentRequest", "Reason", TransitionNoteBound),
+        new("IncidentTransitionRequest", "Reason", TransitionNoteBound),
+
         // The monitoring-ingest path.
         new("CreateIncidentRequest", "DataLanguage", IngestPath),
         new("CreateIncidentRequest", "ExternalAlertId", IngestPath),

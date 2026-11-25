@@ -24,8 +24,8 @@ public sealed class VoiceCallStuckSweepQuartzJob(
 
     public async Task Execute(IJobExecutionContext context)
     {
+        using var correlation = AuditJobCorrelation.Begin(context);
         var ct = context.CancellationToken;
-        using var correlation = AuditCorrelationScope.Begin($"voice-call-stuck-sweep:{context.FireInstanceId}");
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -102,7 +102,8 @@ public sealed class VoiceCallStuckSweepQuartzJob(
                 callLog.IncidentId.ToString(),
                 oldValues: $"Status: {lastStatus}",
                 newValues: $"Status: {CallStatus.Failed}",
-                description: $"Voice call to {recipient} never reported a final status; marked failed and a further attempt armed.",
+                // The summary travels in the exported event, so it says what happened, never who was called.
+                description: "A voice call never reported a final status; marked failed and a further attempt armed.",
                 cancellationToken: ct);
         }
         catch (Exception ex)

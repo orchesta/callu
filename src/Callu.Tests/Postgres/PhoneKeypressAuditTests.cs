@@ -41,6 +41,9 @@ public class PhoneKeypressAuditTests(PostgresFixture pg)
         Assert.Equal("Status: Open", row.ChangeBefore);
         Assert.Equal("Status: Acknowledged", row.ChangeAfter);
         Assert.Contains("keypress", row.Summary ?? "", StringComparison.OrdinalIgnoreCase);
+        // The summary travels in the exported event, so it never carries the number or the name called.
+        Assert.DoesNotContain(Phone, row.Summary ?? "", StringComparison.Ordinal);
+        Assert.DoesNotContain("Ada", row.Summary ?? "", StringComparison.Ordinal);
     }
 
     /// <summary>The incident row has to hold an id, like every other writer puts there.</summary>

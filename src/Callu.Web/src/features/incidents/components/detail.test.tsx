@@ -308,13 +308,68 @@ describe("IncidentDetail — actions fire the correct server call", () => {
     expect(createConferenceMutate.mock.calls[0][0]).toBe(INCIDENT_ID);
   });
 
-  it("close is offered only once the incident is Resolved, and calls the close mutation", () => {
+  it("resolve asks how it was resolved, then calls the resolve mutation with the type", async () => {
+    setup({ role: "Admin", incident: baseIncident({ status: "Acknowledged" }) });
+    renderDetail();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Resolve$/i })[0]);
+    expect(resolveMutate).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.selectOptions(within(dialog).getByRole("combobox"), "permanent-fix");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Resolve$/i }));
+
+    expect(resolveMutate).toHaveBeenCalledWith(
+      { id: INCIDENT_ID, resolutionType: "permanent-fix", reason: undefined },
+      expect.anything(),
+    );
+  });
+
+  it("close is offered only once the incident is Resolved, and calls the close mutation with a reason", async () => {
     setup({ role: "Admin", incident: baseIncident({ status: "Resolved", resolvedAt: "2026-07-15T11:00:00Z" }) });
     renderDetail();
 
     const closeButtons = screen.getAllByRole("button", { name: /^Close$/i });
     fireEvent.click(closeButtons[0]);
-    expect(closeMutate).toHaveBeenCalledWith(INCIDENT_ID);
+    expect(closeMutate).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox"), "Verified stable for a day");
+    await userEvent.click(within(dialog).getByRole("button", { name: /Close incident/i }));
+
+    expect(closeMutate).toHaveBeenCalledWith(
+      { id: INCIDENT_ID, reason: "Verified stable for a day" },
+      expect.anything(),
+    );
+  });
+
+  it("a failed close leaves the dialog open with the typed reason", async () => {
+    setup({ role: "Admin", incident: baseIncident({ status: "Resolved", resolvedAt: "2026-07-15T11:00:00Z" }) });
+    renderDetail();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Close$/i })[0]);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox"), "Still typing");
+    await userEvent.click(within(dialog).getByRole("button", { name: /Close incident/i }));
+
+    // The mutate mock never calls onSuccess, as a rejected request would not.
+    expect(closeMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByRole("textbox")).toHaveValue("Still typing");
+  });
+
+  it("reopen asks for a reason, then calls the reopen mutation with it", async () => {
+    setup({ role: "Admin", incident: baseIncident({ status: "Resolved", resolvedAt: "2026-07-15T11:00:00Z" }) });
+    renderDetail();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Reopen$/i })[0]);
+    expect(reopenMutate).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox"), "Seen again");
+    await userEvent.click(within(dialog).getByRole("button", { name: /^Reopen$/i }));
+
+    expect(reopenMutate).toHaveBeenCalledWith({ id: INCIDENT_ID, reason: "Seen again" }, expect.anything());
   });
 });
 

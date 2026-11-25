@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Application.Services;
 using Callu.Domain.Entities;
@@ -28,7 +29,8 @@ public class NotificationChannelService(
     IOrganizationSettingsService organizationSettings,
     IOptions<CommunicationSettingsOptions> communicationOptions,
     IAuditLogService auditLogService,
-    ILogger<NotificationChannelService> logger) : INotificationChannelService
+    ILogger<NotificationChannelService> logger,
+    ICurrentUserService? currentUser = null) : INotificationChannelService
 {
     private const string ChannelEntity = "NotificationChannel";
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -277,7 +279,7 @@ public class NotificationChannelService(
 
         // The webhook URL is a credential, so the row names the channel and never its configuration.
         await auditLogService.LogAsync(
-            null, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
+            currentUser?.UserId, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
             newValues: $"name={entity.Name}; type={entity.ChannelType}; enabled={entity.IsEnabled}",
             description: "Channel created",
             cancellationToken: ct);
@@ -324,7 +326,7 @@ public class NotificationChannelService(
         await unitOfWork.SaveChangesAsync(ct);
 
         await auditLogService.LogAsync(
-            null, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
+            currentUser?.UserId, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
             oldValues: before,
             newValues: $"name={entity.Name}; enabled={entity.IsEnabled}; severity={entity.MinimumSeverity}",
             description: secretsReplaced ? "Credentials replaced" : "Credentials unchanged",
@@ -344,7 +346,7 @@ public class NotificationChannelService(
         await unitOfWork.SaveChangesAsync(ct);
 
         await auditLogService.LogAsync(
-            null, AuditAction.Deleted, ChannelEntity, entity.Id.ToString(),
+            currentUser?.UserId, AuditAction.Deleted, ChannelEntity, entity.Id.ToString(),
             oldValues: $"name={entity.Name}; type={entity.ChannelType}",
             cancellationToken: ct);
 
@@ -362,7 +364,7 @@ public class NotificationChannelService(
         await unitOfWork.SaveChangesAsync(ct);
 
         await auditLogService.LogAsync(
-            null, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
+            currentUser?.UserId, AuditAction.SettingsChanged, ChannelEntity, entity.Id.ToString(),
             newValues: $"enabled={entity.IsEnabled}",
             description: entity.IsEnabled ? "Channel enabled" : "Channel disabled",
             cancellationToken: ct);

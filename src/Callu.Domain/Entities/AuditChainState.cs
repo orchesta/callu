@@ -28,4 +28,18 @@ public class AuditChainState : BaseEntity
     /// <summary>Hash of the last pruned entry, which the oldest surviving entry must still link to.</summary>
     [StringLength(64)]
     public string? PrunedThroughHash { get; set; }
+
+    /// <summary>The public chain's integrity.chainId, minted once.</summary>
+    [StringLength(64)]
+    public string? ChainId { get; set; }
+
+    /// <summary>Sequence of the last row in the public chain; 0 before it starts.</summary>
+    public long OamLastSequence { get; set; }
+
+    /// <summary>OamHash of that row, which the next one's previousHash names.</summary>
+    [StringLength(64)]
+    public string? OamLastHash { get; set; }
+
+    /// <summary>A fresh chain id, minted once when the public chain first starts.</summary>
+    public static string NewChainId() => "callu-" + Guid.NewGuid().ToString("N");
 }

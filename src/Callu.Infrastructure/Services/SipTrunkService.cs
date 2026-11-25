@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Mapster;
+using Callu.Application.Common.Interfaces;
 using Callu.Application.Common.Interfaces.Persistence;
 using Callu.Application.Providers;
 using Callu.Infrastructure.Persistence.Transactions;
@@ -25,6 +26,7 @@ public class SipTrunkService : ISipTrunkService
     private readonly IAuditLogService _auditLogService;
     private readonly ICommunicationProviderRegistry _registry;
     private readonly ILogger<SipTrunkService> _logger;
+    private readonly ICurrentUserService? _currentUser;
 
     public SipTrunkService(
         ISipTrunkSettingsRepository trunkRepo,
@@ -33,7 +35,8 @@ public class SipTrunkService : ISipTrunkService
         SipTrunkPasswordProtector passwordProtector,
         IAuditLogService auditLogService,
         ICommunicationProviderRegistry registry,
-        ILogger<SipTrunkService> logger)
+        ILogger<SipTrunkService> logger,
+        ICurrentUserService? currentUser = null)
     {
         _trunkRepo = trunkRepo;
         _providerRepo = providerRepo;
@@ -42,6 +45,7 @@ public class SipTrunkService : ISipTrunkService
         _auditLogService = auditLogService;
         _registry = registry;
         _logger = logger;
+        _currentUser = currentUser;
     }
     
     public async Task<IEnumerable<SipTrunkDto>> GetTrunksAsync(CancellationToken cancellationToken = default)
@@ -83,7 +87,7 @@ public class SipTrunkService : ISipTrunkService
 
             // The password is never in the row: an audit entry records that one was set, not what.
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "SipTrunk", trunk.Id.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "SipTrunk", trunk.Id.ToString(),
                 newValues: $"name={trunk.Name}; server={trunk.Server}:{trunk.Port}; user={trunk.Username}",
                 description: "Password set",
                 cancellationToken: cancellationToken);
@@ -127,7 +131,7 @@ public class SipTrunkService : ISipTrunkService
             }
 
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "SipTrunk", trunk.Id.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "SipTrunk", trunk.Id.ToString(),
                 oldValues: before,
                 newValues: $"name={trunk.Name}; server={trunk.Server}:{trunk.Port}; user={trunk.Username}; enabled={trunk.IsEnabled}",
                 description: passwordChanged ? "Password replaced" : "Password unchanged",
@@ -173,7 +177,7 @@ public class SipTrunkService : ISipTrunkService
                 + "Calls will use whatever carrier it already had.", error);
 
             await _auditLogService.LogAsync(
-                null, AuditAction.SettingsChanged, "SipTrunk", trunkId.ToString(),
+                _currentUser?.UserId, AuditAction.SettingsChanged, "SipTrunk", trunkId.ToString(),
                 description: $"Carrier was NOT applied to the voice service: {Clip(error)}",
                 cancellationToken: cancellationToken);
         }
@@ -214,7 +218,7 @@ public class SipTrunkService : ISipTrunkService
             trunk.IsDeleted = true;
 
             await _auditLogService.LogAsync(
-                null, AuditAction.Deleted, "SipTrunk", trunk.Id.ToString(),
+                _currentUser?.UserId, AuditAction.Deleted, "SipTrunk", trunk.Id.ToString(),
                 oldValues: $"name={trunk.Name}; server={trunk.Server}:{trunk.Port}",
                 cancellationToken: cancellationToken);
 

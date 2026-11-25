@@ -18,6 +18,14 @@ public class AuditArchiveRun : BaseEntity
     [StringLength(64)]
     public string Sha256 { get; set; } = string.Empty;
 
+    /// <summary>The day's stored OpenAuditModel events, written beside the entity file; null for days archived before they existed.</summary>
+    [StringLength(260)]
+    public string? OamFileName { get; set; }
+
+    /// <summary>SHA-256 of that compressed file, base64.</summary>
+    [StringLength(64)]
+    public string? OamSha256 { get; set; }
+
     public int RowCount { get; set; }
 
     public long SizeBytes { get; set; }

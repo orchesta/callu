@@ -13,6 +13,9 @@ public class AuditEventNamingTests
     [InlineData("SipTrunk", AuditAction.SettingsChanged, "sip-trunk.settings-change")]
     [InlineData("CommunicationProvider", AuditAction.Deleted, "communication-provider.delete")]
     [InlineData("Incident", AuditAction.EscalationNobodyReached, "incident.escalation-nobody-reached")]
+    [InlineData("AuditCheckpoint", AuditAction.Published, "audit-checkpoint.publish")]
+    [InlineData("AuditCheckpoint", AuditAction.PublishFailed, "audit-checkpoint.publish")]
+    [InlineData("IncidentNote", AuditAction.Created, "incident-note.create")]
     public void ToEventName_JoinsSlugifiedResourceAndAction(string resourceType, AuditAction action, string expected)
     {
         Assert.Equal(expected, AuditEventNaming.ToEventName(resourceType, action));
@@ -23,6 +26,7 @@ public class AuditEventNamingTests
     [Theory]
     [InlineData(AuditAction.Login, AuditAction.LoginFailed)]
     [InlineData(AuditAction.IntegrityVerified, AuditAction.IntegrityBroken)]
+    [InlineData(AuditAction.Published, AuditAction.PublishFailed)]
     public void ToEventName_GivesAnOperationOneNameWhicheverWayItWent(AuditAction succeeded, AuditAction failed)
     {
         Assert.Equal(
@@ -67,10 +71,30 @@ public class AuditEventNamingTests
 
     [Theory]
     [InlineData(AuditAction.LoginFailed, AuditOutcome.Failure)]
+    [InlineData(AuditAction.PublishFailed, AuditOutcome.Failure)]
     [InlineData(AuditAction.EscalationDispatchPartiallyFailed, AuditOutcome.Partial)]
     [InlineData(AuditAction.Acknowledged, AuditOutcome.Success)]
+    [InlineData(AuditAction.Published, AuditOutcome.Success)]
     public void ToOutcome_ClassifiesTheAction(AuditAction action, AuditOutcome expected)
     {
         Assert.Equal(expected, AuditEventNaming.ToOutcome(action));
+    }
+
+    // The reviewer's decision was carried out; nothing failed.
+    [Fact]
+    public void ToOutcome_CountsARejectedPostmortemAsADecisionThatSucceeded()
+    {
+        Assert.Equal(AuditOutcome.Success, AuditEventNaming.ToOutcome(AuditAction.Rejected));
+    }
+
+    [Theory]
+    [InlineData("Incident", "incident-management")]
+    [InlineData("IncidentNote", "incident-management")]
+    [InlineData("User", "identity-and-access-management")]
+    [InlineData("AuditCheckpoint", "audit-management")]
+    [InlineData("SipTrunk", "platform-administration")]
+    public void ToEventCategory_FilesTheResourceUnderItsDomain(string resourceType, string expected)
+    {
+        Assert.Equal(expected, AuditEventNaming.ToEventCategory(resourceType));
     }
 }
