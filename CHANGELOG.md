@@ -3,7 +3,7 @@
 Notable, user-facing changes to Callu. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 1.3.0 — 2026-11-02
+## 1.3.0 — 2026-11-26
 
 - **The audit export is OpenAuditModel 1.0, and verifies with OpenAuditModel's own tool** (in callu's
   CI, on a sample export; not a certification). Each audit row's event is now built once, when the row
@@ -50,6 +50,10 @@ Notable, user-facing changes to Callu. This project follows
   a copy of every issued checkpoint under `checkpoints/`, named `checkpoint-<head sequence>-<id>.json`
   so that two checkpoints at the same head both survive. The existing file now also carries each row's details, parent span
   and HTTP method, so a row's keyed hash can be checked from the archive.
+- **Security:** the ASP.NET Core and EF Core packages move to 10.0.15, which clears the High advisories
+  on the Redis SignalR backplane (GHSA-wr8v-9x5q-ggcm) and on the XML and PKCS cryptography libraries
+  the Data Protection key ring uses (GHSA-r955-8q5j-3h83, GHSA-7hqp-7c5m-4vq6, GHSA-c399-9853-6jmj,
+  GHSA-846f-f764-76mx); MessagePack moves to 2.5.303 with them.
 - Upgrade note: the first Worker run after upgrading builds the public chain over every surviving
   audit row, which can take a while on a large audit table, and the stored events make the table
   noticeably larger. Read the README's upgrade notes before upgrading: verify the chain first, and
