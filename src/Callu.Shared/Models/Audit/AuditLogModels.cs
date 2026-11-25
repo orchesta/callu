@@ -60,6 +60,10 @@ public class AuditLogFilter
     public bool SortAscending { get; set; }
 
     public Guid? ResourceId { get; set; }
+
+    /// <summary>Also rows whose details name the resource as a related resource.</summary>
+    public bool IncludeRelated { get; set; }
+
     public string? RequestIpAddress { get; set; }
 
     /// <summary>Matches the actor name, the summary, or the request route.</summary>

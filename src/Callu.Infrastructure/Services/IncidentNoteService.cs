@@ -101,12 +101,12 @@ public class IncidentNoteService(
             var incident = (await incidentRepo.GetByIdAsync(incidentId, cancellationToken))!;
             using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(incidentId));
 
-            await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Created, "Incident", incidentId.ToString())
+            await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Created, "IncidentNote", note.Id.ToString())
             {
-                Description = $"Note {note.Id} added ({(note.IsInternal ? "internal" : "visible")})",
-                // The keyed chain seals what the note first said; the exported change names the field only.
+                Description = note.IsInternal ? "Note added (internal)" : "Note added",
+                // The keyed chain seals what the note first said; the exported change names the fields only.
                 NewValues = note.Content,
-                Details = IncidentAuditDetails.NoteAdded(incident),
+                Details = IncidentAuditDetails.Note(incident, new AuditChange("create", ["content", "isInternal"])),
             }, cancellationToken);
 
             logger.LogInformation("Added note {NoteId} to incident {IncidentId}", note.Id, incidentId);
@@ -129,18 +129,25 @@ public class IncidentNoteService(
                 throw new NotFoundException($"Note {noteId} not found");
 
             var previousContent = note.Content;
+            var previousPinned = note.IsPinned;
 
             note.Content = request.Content.Trim();
             note.IsPinned = request.IsPinned;
             note.UpdatedAt = DateTime.UtcNow;
 
+            // Read for the audit row only: the incident is not changed here.
+            var incident = (await incidentRepo.GetByIdAsync(note.IncidentId, cancellationToken))!;
+            using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(note.IncidentId));
+
             // The note is part of the incident's written record, so a rewrite keeps both versions.
-            await auditLogService.LogAsync(
-                currentUser.UserId, AuditAction.Updated, "Incident", note.IncidentId.ToString(),
-                oldValues: previousContent,
-                newValues: note.Content,
-                description: $"Note {noteId} edited",
-                cancellationToken: cancellationToken);
+            await auditLogService.LogAsync(new AuditRecord(currentUser.UserId, AuditAction.Updated, "IncidentNote", noteId.ToString())
+            {
+                Description = "Note edited",
+                OldValues = previousContent,
+                NewValues = note.Content,
+                Details = IncidentAuditDetails.Note(incident,
+                    new AuditChange("update", EditedFields(previousContent, previousPinned, note))),
+            }, cancellationToken);
 
             logger.LogInformation("Updated note {NoteId}", noteId);
             return true;
@@ -160,15 +167,31 @@ public class IncidentNoteService(
             note.IsDeleted = true;
             note.UpdatedAt = DateTime.UtcNow;
 
-            await auditLogService.LogAsync(
-                currentUser.UserId, AuditAction.Deleted, "Incident", note.IncidentId.ToString(),
-                oldValues: note.Content,
-                description: $"Note {noteId} deleted",
-                cancellationToken: cancellationToken);
+            // Read for the audit row only: the incident is not changed here.
+            var incident = (await incidentRepo.GetByIdAsync(note.IncidentId, cancellationToken))!;
+            using var correlation = AuditCorrelationScope.BeginIfAbsent(AuditCorrelationScope.ForIncident(note.IncidentId));
+
+            // Deleting the note must not delete what it said: the keyed chain keeps the text.
+            await auditLogService.LogAsync(new AuditRecord(currentUser.UserId, AuditAction.Deleted, "IncidentNote", noteId.ToString())
+            {
+                Description = "Note deleted",
+                OldValues = note.Content,
+                Details = IncidentAuditDetails.Note(incident, new AuditChange("delete", [])),
+            }, cancellationToken);
 
             logger.LogInformation("Deleted note {NoteId}", noteId);
             return true;
         }, cancellationToken);
+    }
+
+    /// <summary>Which of the note's fields an edit changed.</summary>
+    // Never empty: a request that changed neither still asked for both, and the row records the ask.
+    private static IReadOnlyList<string> EditedFields(string previousContent, bool previousPinned, IncidentNote note)
+    {
+        var fields = new List<string>(2);
+        if (note.Content != previousContent) fields.Add("content");
+        if (note.IsPinned != previousPinned) fields.Add("isPinned");
+        return fields.Count == 0 ? ["content", "isPinned"] : fields;
     }
 
     /// <summary>Team-scoping check mirroring <c>IncidentService.ApplyTeamScopingAsync</c>.</summary>

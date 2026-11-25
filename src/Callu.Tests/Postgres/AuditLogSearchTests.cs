@@ -24,7 +24,7 @@ public class AuditLogSearchTests(PostgresFixture fixture)
 
     private static AuditLog Row(DateTime at, AuditAction action, string? userId, string? userName,
         string entityType = "Incident", string? description = null, string? ip = null,
-        Guid? entityId = null) => new()
+        Guid? entityId = null, string? details = null) => new()
     {
         Id = Guid.NewGuid(),
         CreatedAt = at,
@@ -36,6 +36,7 @@ public class AuditLogSearchTests(PostgresFixture fixture)
         ResourceId = entityId ?? Guid.NewGuid(),
         Summary = description,
         RequestIpAddress = ip,
+        Details = details,
     };
 
     private async Task<(AuditLogService Sut, ApplicationDbContext Ctx)> SeedAsync(params AuditLog[] rows)
@@ -227,6 +228,41 @@ public class AuditLogSearchTests(PostgresFixture fixture)
 
         Assert.Equal("Escalation", Assert.Single(overlapping.Items).ResourceType);
         Assert.Equal(0, disjoint.TotalCount);
+    }
+
+    /// <summary>A note is keyed by its own id and names the incident as related; the incident's trail reaches
+    /// it only when the search is asked to follow that.</summary>
+    [PostgresFact]
+    public async Task ARowNamingTheIncidentAsRelated_ComesBackOnlyWhenRelatedRowsAreAskedFor()
+    {
+        var incident = Guid.NewGuid();
+        var relatedToIt = AuditDetailsJson.Serialize(new AuditDetails
+        {
+            RelatedResources = [new("incident", incident.ToString("D"))],
+        });
+        var (sut, ctx) = await SeedAsync(
+            Row(Base, AuditAction.Created, "u1", "Ali", "Incident", entityId: incident),
+            Row(Base, AuditAction.Created, "u1", "Ali", "IncidentNote", entityId: Guid.NewGuid(), details: relatedToIt),
+            Row(Base, AuditAction.Created, "u1", "Ali", "IncidentNote", entityId: Guid.NewGuid()));
+        await using var _ctx = ctx;
+
+        var following = await sut.SearchAsync(new AuditLogFilter
+        {
+            ResourceTypes = ["Incident", "IncidentNote"],
+            ResourceId = incident,
+            IncludeRelated = true,
+        });
+        var keyedOnly = await sut.SearchAsync(new AuditLogFilter
+        {
+            ResourceTypes = ["Incident", "IncidentNote"],
+            ResourceId = incident,
+        });
+
+        Assert.Equal(2, following.TotalCount);
+        Assert.Equal(
+            ["Incident", "IncidentNote"],
+            following.Items.Select(i => i.ResourceType).OrderBy(t => t, StringComparer.Ordinal));
+        Assert.Equal("Incident", Assert.Single(keyedOnly.Items).ResourceType);
     }
 
     /// <summary>An empty list has to mean "no type filter"; translated as IN () it would hide everything.</summary>

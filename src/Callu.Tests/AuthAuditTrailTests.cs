@@ -113,9 +113,10 @@ public class AuthAuditTrailTests
         Assert.Contains((AuditAction.LoginFailed, _user.Id), Written());
     }
 
-    /// <summary>An attempt against an account that does not exist is still an attempt.</summary>
+    /// <summary>An attempt against an account that does not exist is still an attempt, but the
+    /// address tried is not part of the summary: the summary travels in the exported event.</summary>
     [Fact]
-    public async Task AnAttemptOnAnUnknownAccount_IsRecorded()
+    public async Task AnAttemptOnAnUnknownAccount_IsRecorded_WithoutTheAddressTried()
     {
         _users.FindByEmailAsync(Email).Returns((ApplicationUser?)null);
 
@@ -123,6 +124,10 @@ public class AuthAuditTrailTests
 
         Assert.False(result.Success);
         Assert.Contains(AuditAction.LoginFailed, Written().Select(w => w.Action));
+        var summary = (string?)_audit.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IAuditLogService.LogAsync))
+            .GetArguments()[6];
+        Assert.DoesNotContain(Email, summary ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

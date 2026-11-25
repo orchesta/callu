@@ -52,14 +52,16 @@ internal static class IncidentAuditDetails
         };
     }
 
-    /// <summary>A note added to the incident: the incident as it stands, and which part of it changed.</summary>
-    // The row is an incident.create the profile governs, so it carries the state. The note's text is kept
-    // in the row's own change column for the keyed chain, never in this exported change.
-    public static AuditDetails NoteAdded(Incident incident) => new()
+    /// <summary>A row about one of the incident's notes: which of the note's fields changed, and the
+    /// incident it belongs to as it stood.</summary>
+    // The row is the note's own; the incident is a related resource, which is how the incident's trail
+    // still finds it, and the incident's state travels in metadata. The note's text stays in the row's
+    // change column for the keyed chain and never enters the exported change: fields are named, not quoted.
+    public static AuditDetails Note(Incident incident, AuditChange change) => new()
     {
-        RelatedResources = Related(incident),
+        RelatedResources = [new("incident", incident.Id.ToString("D")), .. ServiceAndTeam(incident)],
         Metadata = new JsonObject { ["incident"] = Core(incident) },
-        Change = new AuditChange("update", ["notes"]),
+        Change = change,
     };
 
     private static JsonObject Core(Incident incident) => new()
@@ -72,11 +74,18 @@ internal static class IncidentAuditDetails
 
     private static string Priority(Incident incident) => incident.Severity.ToString().ToLowerInvariant();
 
+    // Null, not an empty list, when there is nothing to name: the fragment is then left out of the row.
     private static IReadOnlyList<AuditRelatedResource>? Related(Incident incident)
+    {
+        var related = ServiceAndTeam(incident);
+        return related.Count == 0 ? null : related;
+    }
+
+    private static List<AuditRelatedResource> ServiceAndTeam(Incident incident)
     {
         var related = new List<AuditRelatedResource>();
         if (incident.ServiceId is { } serviceId) related.Add(new("service", serviceId.ToString("D")));
         if (incident.TeamId is { } teamId) related.Add(new("team", teamId.ToString("D")));
-        return related.Count == 0 ? null : related;
+        return related;
     }
 }

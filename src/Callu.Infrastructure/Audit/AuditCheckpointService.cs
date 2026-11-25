@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -52,11 +53,12 @@ public sealed class AuditCheckpointService(
             });
 
         // Signed into the checkpoint as it is, so it has to be a reference the schema accepts: one line,
-        // and no control character a reader could not see.
-        if (!OpenAuditEventBuilder.IsIdentifier(text) || text.Any(char.IsControl))
+        // and no control or format character a reader could not see. A zero-width character or a
+        // byte-order mark inside a ticket number would never match the one a reader types.
+        if (!OpenAuditEventBuilder.IsIdentifier(text) || text.Any(char.IsControl) || HasFormatCharacter(text))
             throw new ValidationException(new Dictionary<string, string[]>
             {
-                ["reference"] = ["Give the reference on one line, without control characters."],
+                ["reference"] = ["Give the reference on one line, without control or invisible characters."],
             });
 
         var checkpoint = await CreateAsync(OpenAuditDocuments.Anchor("manual", text), ct);
@@ -169,6 +171,10 @@ public sealed class AuditCheckpointService(
         };
         return text.Length <= MaxErrorLength ? text : text[..MaxErrorLength];
     }
+
+    // By rune rather than by char, so a format character outside the basic plane is caught as well.
+    private static bool HasFormatCharacter(string text) =>
+        text.EnumerateRunes().Any(rune => Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format);
 
     public async Task<IReadOnlyList<AuditCheckpointSummary>> ListIssuedAsync(CancellationToken ct) =>
         await db.AuditCheckpoints.AsNoTracking()

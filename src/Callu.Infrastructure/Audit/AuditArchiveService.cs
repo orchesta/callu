@@ -264,12 +264,14 @@ public sealed class AuditArchiveService(
 
         var issued = await db.AuditCheckpoints.AsNoTracking()
             .Where(c => c.Status == AuditCheckpointStatus.Issued)
-            .Select(c => new { c.HeadSequence, c.Document })
+            .Select(c => new { c.Id, c.HeadSequence, c.Document })
             .ToListAsync(ct);
 
         foreach (var checkpoint in issued)
         {
-            var path = Path.Combine(target, $"checkpoint-{checkpoint.HeadSequence:D12}.json");
+            // A manual and a published checkpoint can be issued at the same head. Named by the head alone,
+            // the second would look like a copy of the first and be skipped.
+            var path = Path.Combine(target, $"checkpoint-{checkpoint.HeadSequence:D12}-{checkpoint.Id:N}.json");
             if (File.Exists(path)) continue;
 
             await File.WriteAllTextAsync(path + ".partial", checkpoint.Document, ct);

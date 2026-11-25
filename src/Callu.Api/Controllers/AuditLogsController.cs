@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Text.Json.Nodes;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ using Callu.Domain.Entities;
 using Callu.Api.Filters;
 using Callu.Domain.Enums;
 using Callu.Infrastructure.Audit;
+using Callu.Infrastructure.Audit.OpenAuditModel;
 using Callu.Shared.Models.Audit;
 
 namespace Callu.Api.Controllers;
@@ -60,10 +62,24 @@ public class AuditLogsController(
         }
         if (checkpoint is null) return Conflict(new { message = "Nothing has been sealed into the audit chain yet." });
 
-        await auditLogService.LogAsync(
-            User.FindFirstValue(ClaimTypes.NameIdentifier), AuditAction.Created, "AuditCheckpoint", checkpoint.Id.ToString(),
-            newValues: $"headSequence={checkpoint.HeadSequence}; anchor=manual",
-            description: "Checkpoint issued", cancellationToken: ct);
+        await auditLogService.LogAsync(new AuditRecord(
+            User.FindFirstValue(ClaimTypes.NameIdentifier), AuditAction.Created, "AuditCheckpoint", checkpoint.Id.ToString())
+        {
+            NewValues = $"headSequence={checkpoint.HeadSequence}; anchor=manual",
+            Description = "Checkpoint issued",
+            Details = new AuditDetails
+            {
+                Metadata = new JsonObject
+                {
+                    ["checkpoint"] = new JsonObject
+                    {
+                        ["headSequence"] = checkpoint.HeadSequence,
+                        ["eventCount"] = checkpoint.EventCount,
+                        ["anchor"] = "manual",
+                    },
+                },
+            },
+        }, ct);
 
         return Ok(new AuditCheckpointSummary(checkpoint.Id, checkpoint.HeadSequence, checkpoint.EventCount,
             checkpoint.AnchorType, checkpoint.AnchorReference, checkpoint.IssuedAt));
@@ -144,13 +160,14 @@ public class AuditLogsController(
 
         // Narrowed to one resource, the row says which one — otherwise the trail records that somebody
         // took a file out without saying whose history left with it.
-        await auditLogService.LogAsync(
-            userId, AuditAction.Exported, "AuditLog", filter.ResourceId?.ToString() ?? string.Empty,
-            newValues: $"format={extension}; from={filter.From:O}; to={filter.To:O}; "
+        await auditLogService.LogAsync(new AuditRecord(userId, AuditAction.Exported, "AuditLog", filter.ResourceId?.ToString() ?? string.Empty)
+        {
+            NewValues = $"format={extension}; from={filter.From:O}; to={filter.To:O}; "
                 + $"action={filter.Action}; resourceType={filter.ResourceType}; resourceTypes={types}; "
                 + $"resourceId={filter.ResourceId}; actorId={filter.ActorId}; requestIpAddress={filter.RequestIpAddress}; "
-                + $"query={filter.Query}; sealedThrough={sealedThrough}",
-            cancellationToken: ct);
+                + $"query={filter.Query}; includeRelated={filter.IncludeRelated}; sealedThrough={sealedThrough}",
+            Details = new AuditDetails { Metadata = new JsonObject { ["export"] = ExportMetadata(filter, extension, sealedThrough) } },
+        }, ct);
 
         if (jsonLines)
             await AuditLogExport.WriteJsonLinesAsync(
@@ -162,6 +179,26 @@ public class AuditLogsController(
             await AuditLogExport.WriteCsvAsync(Response.Body, auditLogService.StreamAsync(filter, ct), ct);
     }
 
+    /// <summary>What the export covered, as the export row's own event carries it.</summary>
+    // Only the filters that were set. The search text stays out: it can be a person's name or address,
+    // and the exported event must not carry one; the row's own change column keeps it for the panel.
+    private static JsonObject ExportMetadata(AuditLogFilter filter, string format, long? sealedThrough)
+    {
+        var export = new JsonObject { ["format"] = format };
+        if (filter.From is { } from) export["from"] = OpenAuditTime.Format(from);
+        if (filter.To is { } to) export["to"] = OpenAuditTime.Format(to);
+        if (filter.Action is { } action) export["action"] = action.ToString();
+        if (filter.ResourceType is { Length: > 0 } resourceType) export["resourceType"] = resourceType;
+        if (filter.ResourceTypes is { Count: > 0 } resourceTypes)
+            export["resourceTypes"] = new JsonArray(resourceTypes.Select(t => (JsonNode?)t).ToArray());
+        if (filter.ResourceId is { } resourceId) export["resourceId"] = resourceId.ToString("D");
+        if (filter.ActorId is { Length: > 0 } actorId) export["actorId"] = actorId;
+        if (filter.RequestIpAddress is { Length: > 0 } requestIpAddress) export["requestIpAddress"] = requestIpAddress;
+        if (filter.IncludeRelated) export["includeRelated"] = true;
+        if (sealedThrough is { } head) export["sealedThrough"] = head;
+        return export;
+    }
+
     /// <summary>Replays the hash chain and reports the first entry that does not fit.</summary>
     [HttpPost("verify")]
     public async Task<IActionResult> Verify(CancellationToken ct = default)
@@ -169,14 +206,18 @@ public class AuditLogsController(
         var verdict = await auditChain.VerifyAsync(ct);
 
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        await auditLogService.LogAsync(
+        var integrity = new JsonObject { ["checked"] = verdict.CheckedCount, ["intact"] = verdict.Intact };
+        if (verdict.FirstBrokenSequence is { } firstBroken) integrity["firstBrokenSequence"] = firstBroken;
+        await auditLogService.LogAsync(new AuditRecord(
             userId,
             verdict.Intact ? AuditAction.IntegrityVerified : AuditAction.IntegrityBroken,
             "AuditLog",
-            (verdict.FirstBrokenSequence ?? 0).ToString(),
-            description: verdict.Reason,
-            newValues: $"checked={verdict.CheckedCount}",
-            cancellationToken: ct);
+            (verdict.FirstBrokenSequence ?? 0).ToString())
+        {
+            Description = verdict.Reason,
+            NewValues = $"checked={verdict.CheckedCount}",
+            Details = new AuditDetails { Metadata = new JsonObject { ["integrity"] = integrity } },
+        }, ct);
 
         return Ok(new
         {

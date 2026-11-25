@@ -240,7 +240,7 @@ services:
       Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
       Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
       Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
-      # Off by default. Set the same on both hosts: the API signs exports, the Worker published checkpoints.
+      # Off by default. Set the same on both hosts: the API signs exports, the Worker publishes checkpoints.
       Callu__AuditSigning__Enabled: ${AUDIT_SIGNING_ENABLED:-false}
       # The HTTP-SMS client only resolves to public IPs (SSRF guard). Set to true if your SMS
       # gateway lives on a private/LAN address, otherwise those sends are refused.
@@ -336,7 +336,7 @@ services:
       Callu__AuditSyslog__AcceptAnyCertificate: ${AUDIT_SYSLOG_ACCEPT_ANY_CERT:-false}
       Callu__AuditSyslog__Facility: ${AUDIT_SYSLOG_FACILITY:-13}
       Callu__AuditSyslog__QueueCapacity: ${AUDIT_SYSLOG_QUEUE_CAPACITY:-10000}
-      # Off by default. Set the same on both hosts: the API signs exports, the Worker published checkpoints.
+      # Off by default. Set the same on both hosts: the API signs exports, the Worker publishes checkpoints.
       Callu__AuditSigning__Enabled: ${AUDIT_SIGNING_ENABLED:-false}
       # Off unless a path is set. When it is on, retention will not delete an audit entry that has
       # not reached the archive yet — see AUDIT_ARCHIVE_PATH in .env.example before enabling it.

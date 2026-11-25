@@ -18,8 +18,10 @@ import { AuditFilterCard } from "./filter-card";
 
 const PAGE_SIZE = 100;
 
-/** Every entity type a row carrying this incident's id can be filed under. */
-const TRAIL_ENTITY_TYPES = ["Incident", "Escalation", "NotificationChannel", "AuditLog"];
+/** Every entity type a row about this incident can be filed under. */
+// A note is keyed by its own id and names the incident as a related resource, so the search is asked
+// to follow related resources as well as the key.
+const TRAIL_ENTITY_TYPES = ["Incident", "IncidentNote", "Escalation", "NotificationChannel", "AuditLog"];
 
 export function IncidentAuditTrail() {
   const { id = "" } = useParams();
@@ -34,6 +36,7 @@ export function IncidentAuditTrail() {
     action: chosenAction(applied.action),
     resourceId: id,
     resourceTypes: TRAIL_ENTITY_TYPES,
+    includeRelated: true,
     sortAscending: true,
     page,
     pageSize: PAGE_SIZE,

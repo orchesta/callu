@@ -452,6 +452,8 @@ secrets.json
 *.pfx
 *.pem
 *.key
+# A public test key the audit tests read; it is meant to be in the repository.
+!src/Callu.Tests/Audit/Fixtures/OpenAuditModel/ed25519-test-public.pem
 
 # Data Protection keys (contain encryption secrets)
 **/keys/

@@ -76,17 +76,30 @@ public class AuditLogDetailsTests(PostgresFixture fixture)
     }
 
     [PostgresFact]
-    public async Task AWebhookRow_IsAllowedOnTheKey_AndIsASystemActor()
+    public async Task AWebhookRow_IsAllowedOnTheKey_AndIsAServiceActor()
     {
         var cs = await fixture.CreateDatabaseAsync();
         await PostgresFixture.MigrateToHeadAsync(cs);
         var ctx = PostgresFixture.Context(cs);
 
         using (AuditAuthorizationScope.Begin(AuditAuthorization.WebhookKey))
-            await Service(ctx).LogAsync("system:webhook", AuditAction.Created, "Incident", Guid.NewGuid().ToString());
+            await Service(ctx).LogAsync(AuditActors.Webhook, AuditAction.Created, "Incident", Guid.NewGuid().ToString());
 
         var row = await ctx.AuditLogs.SingleAsync();
-        Assert.Equal(AuditActorType.System, row.ActorType);
+        Assert.Equal(AuditActorType.Service, row.ActorType);
         Assert.Equal("service-webhook-key", JsonNode.Parse(row.Details!)!["authorization"]!["policy"]!.GetValue<string>());
+    }
+
+    // Rows written by earlier versions carry this sentinel; it still reads as the system, not as a user.
+    [PostgresFact]
+    public async Task TheOlderWebhookSentinel_IsStillASystemActor()
+    {
+        var cs = await fixture.CreateDatabaseAsync();
+        await PostgresFixture.MigrateToHeadAsync(cs);
+        var ctx = PostgresFixture.Context(cs);
+
+        await Service(ctx).LogAsync("system:webhook", AuditAction.Created, "Incident", Guid.NewGuid().ToString());
+
+        Assert.Equal(AuditActorType.System, (await ctx.AuditLogs.SingleAsync()).ActorType);
     }
 }

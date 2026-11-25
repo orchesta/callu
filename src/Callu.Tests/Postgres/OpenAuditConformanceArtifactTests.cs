@@ -79,17 +79,21 @@ public class OpenAuditConformanceArtifactTests(PostgresFixture fixture)
         // The gate is only as good as what the export holds: every shape the reference tool should see.
         var events = lines.Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
         var ofIncident = events.Where(e => e["resource"]!["id"]!.GetValue<string>() == incident.ToString("D")).ToList();
-        JsonObject Named(string name) => ofIncident.Single(e => e["event"]!["name"]!.GetValue<string>() == name
-            && e["change"]?["changedFields"]?.AsArray().Any(f => f!.GetValue<string>() == "notes") != true);
+        JsonObject Named(string name) => ofIncident.Single(e => e["event"]!["name"]!.GetValue<string>() == name);
 
         Assert.Contains(events, e => e["id"]!.GetValue<string>() == legacyId.ToString("D"));
         Assert.Equal(resolveReason, Named("incident.resolve")["reason"]!["text"]!.GetValue<string>());
         Assert.Equal(closeReason, Named("incident.close")["reason"]!["text"]!.GetValue<string>());
         Assert.Equal(reopenReason, Named("incident.reopen")["reason"]!["text"]!.GetValue<string>());
         Assert.Equal("high", Named("incident.create")["metadata"]!["incident"]!["priority"]!.GetValue<string>());
-        var noteRow = Assert.Single(ofIncident, e => e["event"]!["name"]!.GetValue<string>() == "incident.create"
-            && e["change"]?["changedFields"]?.AsArray().Any(f => f!.GetValue<string>() == "notes") == true);
-        Assert.NotNull(noteRow["metadata"]!["incident"]!["status"]);
+
+        // The note is its own resource: its event is not keyed to the incident, and names it as related.
+        var noteEvent = Assert.Single(events, e => e["event"]!["name"]!.GetValue<string>() == "incident-note.create");
+        Assert.DoesNotContain(noteEvent, ofIncident);
+        Assert.Equal("incident-note", noteEvent["resource"]!["type"]!.GetValue<string>());
+        Assert.Contains(noteEvent["relatedResources"]!.AsArray(), r =>
+            r!["type"]!.GetValue<string>() == "incident" && r["id"]!.GetValue<string>() == incident.ToString("D"));
+        Assert.NotNull(noteEvent["metadata"]!["incident"]!["status"]);
         Assert.DoesNotContain(lines, l => l.Contains(noteText, StringComparison.Ordinal));
 
         if (string.IsNullOrEmpty(target)) return;

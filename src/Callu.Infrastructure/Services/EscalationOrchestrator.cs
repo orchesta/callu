@@ -627,7 +627,9 @@ public class EscalationOrchestrator(
             await auditLogService.LogAsync(
                 EscalationActor, AuditAction.Escalated, "Incident", incident.Id.ToString(),
                 null, $"Step {plan.Step.Level} ({plan.Target.Kind}): {dispatch.Reached} of {dispatch.Reached + dispatch.Failed} target(s) reached",
-                description: $"Escalation step {plan.Step.Level} — {plan.Target.Description}",
+                // The summary travels in the exported event: a schedule or team is named by its label,
+                // but the people a step pages are counted, never named.
+                description: $"Escalation step {plan.Step.Level} — {SummaryTarget(plan.Target)}",
                 cancellationToken: cancellationToken);
 
             if (dispatch.DispatchFailed)
@@ -922,6 +924,12 @@ public class EscalationOrchestrator(
         description.Length <= MaxTargetDescriptionLength
             ? description
             : description[..(MaxTargetDescriptionLength - 1)] + "…";
+
+    /// <summary>The target as an audit summary may describe it: labels stay, people are a count.</summary>
+    private static string SummaryTarget(EscalationTarget target) =>
+        target.Kind == EscalationTargetKind.Users
+            ? $"Users: {target.UserIds?.Length ?? 0} named user(s)"
+            : target.Description;
 
     private async Task<IReadOnlyDictionary<string, string>> ResolveUserNamesAsync(
         EscalationStep step, CancellationToken cancellationToken)

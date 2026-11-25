@@ -3,18 +3,28 @@
 Notable, user-facing changes to Callu. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 1.3.0 — <release date>
+## 1.3.0 — 2026-11-02
 
 - **The audit export is OpenAuditModel 1.0, and verifies with OpenAuditModel's own tool** (in callu's
   CI, on a sample export; not a certification). Each audit row's event is now built once, when the row
   is sealed, and stored with its digest; the JSON Lines export streams those stored events instead of
-  rebuilding them, so two exports of the same row are byte-identical. The events form one public hash chain per installation beside the existing keyed
-  chain, which is unchanged. An export seals first, so it no longer contains unsealed rows, and its own
-  audit row records the sequence it was sealed through. Rows written by earlier versions join the chain
-  on the first run after upgrading, after their keyed hash is checked; none is rewritten.
+  rebuilding them, so a row's event bytes are the same in every export (with signing on, only the
+  signature can differ, and only after a key rotation). The events name the application `callu` and form
+  one public hash chain per installation beside the existing keyed chain, which is unchanged and travels
+  with each event under the `app.callu.audit.internal-chain.*` extension keys. An export seals first, so
+  it no longer contains unsealed rows, and its own audit row records the sequence it was sealed through
+  and the filters it was given, in `metadata.export`; the verify and checkpoint rows likewise carry what
+  they did in `metadata.integrity` and `metadata.checkpoint`. Rows written by earlier versions join the
+  chain on the first run after upgrading, after their keyed hash is checked; none is rewritten. They are
+  exported without a summary, because their descriptions were written for the panel and can carry names,
+  phone numbers, e-mail addresses and titles, and with `change` reduced to the names of the fields their
+  stored change text mentions. A new row's summary carries none of those, and a new row carries `change`
+  only when its writer supplied one.
 - **Checkpoints and inclusion proofs.** With `Callu:AuditCheckpoint:PublishUrl` set, the Worker
   publishes a signed checkpoint of the chain's head once a day and issues it only after the URL accepts
-  it; an administrator can also issue one by hand with a reference to where it is recorded. A sealed
+  it; an administrator can also issue one by hand with a one-line reference, free of invisible format
+  characters, to where it is recorded. Each publication attempt is recorded as `audit-checkpoint.publish`
+  with outcome `success` or `failure`, and a manual checkpoint as `audit-checkpoint.create`. A sealed
   entry has an OpenAuditModel inclusion proof at `GET /api/v1/audit-logs/{id}/proof` once an issued
   checkpoint covers it. The signing-keys endpoint now also returns each key as PEM.
 - **Resolving, closing and reopening ask why.** The panel asks how an incident was resolved and, on
@@ -24,14 +34,21 @@ Notable, user-facing changes to Callu. This project follows
 - **Audit rows record more of their context**: the route template rather than the resolved path, the
   HTTP method, the parent span, the authorization policy that admitted the request, and one
   correlation id per job run and per incident. Free-text audit search no longer matches an identifier
-  inside a new row's route. Adding a note records the incident's status and priority; the note's text
-  stays in the audit row's sealed change column and is not part of the exported event.
+  inside a new row's route. Adding, editing and deleting a note are their own events,
+  `incident-note.create`, `incident-note.update` and `incident-note.delete`, on the note, with the
+  incident, its service and its team as related resources and the incident's status and priority in
+  `metadata.incident`; the incident's audit trail still shows them. The note's text stays in the audit
+  row's sealed change column and is not part of the exported event.
 - **Fixed:** changes made in the panel to SIP trunks, communication providers, organization settings,
   notification channels and services were attributed to the system; they are now attributed to the
-  administrator who made them. Webhook-created incidents were recorded with a user actor type; they are
-  now system actors.
+  administrator who made them. Rows written by the system no longer carry the signed-in administrator's
+  name: `actor.displayName` is the signed-in user's only when the row's actor is that user. Every row an
+  inbound alert webhook writes, whether it opens or resolves an incident, was recorded with a user actor
+  type; it is now the service actor `service:webhook`, of type `service`. Rejecting a postmortem was
+  recorded as a failure; it is now recorded as the completed decision it is, with outcome `success`.
 - The audit archive writes each closed day's OpenAuditModel events beside the existing file and keeps
-  a copy of every issued checkpoint. The existing file now also carries each row's details, parent span
+  a copy of every issued checkpoint under `checkpoints/`, named `checkpoint-<head sequence>-<id>.json`
+  so that two checkpoints at the same head both survive. The existing file now also carries each row's details, parent span
   and HTTP method, so a row's keyed hash can be checked from the archive.
 - Upgrade note: the first Worker run after upgrading builds the public chain over every surviving
   audit row, which can take a while on a large audit table, and the stored events make the table

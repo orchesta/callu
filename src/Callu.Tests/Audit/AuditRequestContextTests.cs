@@ -15,6 +15,8 @@ public class AuditRequestContextTests
     [Theory]
     [InlineData("api/v{version:apiVersion}/incidents/{id:guid}/resolve", "/api/v{version}/incidents/{id}/resolve")]
     [InlineData("api/v{version:apiVersion}/audit-logs", "/api/v{version}/audit-logs")]
+    [InlineData("api/v{version:apiVersion}/Incidents/{id:guid}/resolve", "/api/v{version}/incidents/{id}/resolve")]
+    [InlineData("api/v{version:apiVersion}/{incidentId}/Notes", "/api/v{version}/{incidentId}/notes")]
     [InlineData("files/{**path}", "/files/{path}")]
     [InlineData("items/{id?}", "/items/{id}")]
     [InlineData("items/{id:int=5}", "/items/{id}")]
@@ -78,8 +80,10 @@ public class AuditRequestContextTests
     [InlineData("system:webhook", AuditActorType.System)]
     [InlineData("system:maintenance", AuditActorType.System)]
     [InlineData("system", AuditActorType.System)]
+    [InlineData(AuditActors.Webhook, AuditActorType.Service)]
+    [InlineData("service:anything-else", AuditActorType.Service)]
     [InlineData("8d3f…user", AuditActorType.User)]
-    public void SystemSentinels_AreSystemActors(string? userId, AuditActorType expected) =>
+    public void AnActorId_IsTypedByItsPrefix_SystemSentinelsServicesAndUsers(string? userId, AuditActorType expected) =>
         Assert.Equal(expected, AuditRequestContext.ActorType(userId));
 
     [Fact]
@@ -96,5 +100,33 @@ public class AuditRequestContextTests
         using (AuditAuthorizationScope.Begin(AuditAuthorization.WebhookKey))
             Assert.Same(AuditAuthorization.WebhookKey, AuditAuthorizationScope.Current);
         Assert.Null(AuditAuthorizationScope.Current);
+    }
+
+    [Fact]
+    public void TheAmbientActor_WinsInsideItsScope_NestsAndEndsWithIt()
+    {
+        Assert.Null(AuditActorScope.Current);
+        using (AuditActorScope.Begin(AuditActors.Webhook))
+        {
+            Assert.Equal(AuditActors.Webhook, AuditActorScope.Current);
+            using (AuditActorScope.Begin("service:inner"))
+                Assert.Equal("service:inner", AuditActorScope.Current);
+            Assert.Equal(AuditActors.Webhook, AuditActorScope.Current);
+        }
+        Assert.Null(AuditActorScope.Current);
+    }
+
+    [Fact]
+    public void DisposingAnActorScopeTwice_RestoresThePreviousActorOnlyOnce()
+    {
+        var outer = AuditActorScope.Begin("service:outer");
+        var inner = AuditActorScope.Begin("service:inner");
+
+        inner.Dispose();
+        inner.Dispose();
+
+        Assert.Equal("service:outer", AuditActorScope.Current);
+        outer.Dispose();
+        Assert.Null(AuditActorScope.Current);
     }
 }

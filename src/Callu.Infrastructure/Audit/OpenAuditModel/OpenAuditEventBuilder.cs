@@ -13,7 +13,7 @@ namespace Callu.Infrastructure.Audit.OpenAuditModel;
 /// <summary>Which application and environment a stored event says it came from.</summary>
 public sealed record OpenAuditEventSource(string ApplicationName, string Environment)
 {
-    public static readonly OpenAuditEventSource Default = new("Callu", "production");
+    public static readonly OpenAuditEventSource Default = new("callu", "production");
 }
 
 /// <summary>Where in the public chain the row being sealed goes.</summary>
@@ -25,8 +25,10 @@ public sealed record OpenAuditSealedEvent(string Canonical, string Hash);
 /// <summary>Builds the OpenAuditModel 1.0 event for one audit row, once, at seal time.</summary>
 // Built once and stored, because a digest is a claim about bytes: built at export time, the same row
 // would hash differently whenever this code changed. Rows written before 1.3.0 have no Details and are
-// projected — routes templated or dropped, change reduced to field names — never given fields they
-// did not record.
+// projected — routes templated or dropped, change reduced to field names, summary left out — never
+// given fields they did not record. Their descriptions were written for the panel and carry names,
+// phone numbers, e-mail addresses and titles; the database row and the CSV keep that text, the
+// exported event does not.
 public static partial class OpenAuditEventBuilder
 {
     public const string SpecVersion = "1.0";
@@ -34,7 +36,8 @@ public static partial class OpenAuditEventBuilder
     private const string UnscopedResourceId = "unscoped";
     private const string SystemActorId = "system";
     private const string UnknownActorId = "unknown";
-    private const string ChainExtensionPrefix = "com.callu.audit.internal-chain.";
+    // The namespace is a domain callu controls, callu.app, reversed.
+    private const string ChainExtensionPrefix = "app.callu.audit.internal-chain.";
     private const int MaxChangedFields = 128;
     private const int MaxIdentifierLength = 256;
     private const int MaxShortIdentifierLength = 128;
@@ -64,7 +67,7 @@ public static partial class OpenAuditEventBuilder
             ["id"] = row.Id.ToString("D"),
             ["time"] = OpenAuditTime.Format(row.CreatedAt),
             ["sequence"] = row.Sequence!.Value,
-            ["event"] = Event(row),
+            ["event"] = Event(row, legacy: details is null),
             ["actor"] = Actor(row, legacy: details is null),
             ["resource"] = new JsonObject
             {
@@ -84,7 +87,9 @@ public static partial class OpenAuditEventBuilder
             foreach (var key in DetailKeys)
                 if (details[key] is { } value) document[key] = value.DeepClone();
 
-        if (document["change"] is null && ProjectedChange(row) is { } change) document["change"] = change;
+        // A new row's writer says what changed in Details or says nothing; its change columns are the
+        // panel's text and are not read back into the event.
+        if (details is null && ProjectedChange(row) is { } change) document["change"] = change;
         if (ChainExtensions(row) is { } extensions) document["extensions"] = extensions;
 
         var integrity = new JsonObject
@@ -101,7 +106,7 @@ public static partial class OpenAuditEventBuilder
         return document;
     }
 
-    private static JsonObject Event(AuditLog row)
+    private static JsonObject Event(AuditLog row, bool legacy)
     {
         var evt = new JsonObject
         {
@@ -109,7 +114,8 @@ public static partial class OpenAuditEventBuilder
             ["category"] = row.EventCategory,
             ["outcome"] = row.Outcome.ToString().ToLowerInvariant(),
         };
-        if (!string.IsNullOrEmpty(row.Summary)) evt["summary"] = row.Summary;
+        // A description written before 1.3.0 can name a person; the row keeps it, the event does not.
+        if (!legacy && !string.IsNullOrEmpty(row.Summary)) evt["summary"] = row.Summary;
         // The code names what failed; the summary already says it in words, so it is not repeated.
         if (row.Outcome is AuditOutcome.Failure or AuditOutcome.Partial)
             evt["error"] = new JsonObject { ["code"] = AuditEventNaming.ToActionSegment(row.Action) };

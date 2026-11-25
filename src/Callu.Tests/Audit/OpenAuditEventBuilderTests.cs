@@ -64,6 +64,7 @@ public class OpenAuditEventBuilderTests
         var evt = Sealed(Row());
 
         Assert.Equal("1.0", evt["specVersion"]!.GetValue<string>());
+        Assert.Equal("callu", evt["application"]!["name"]!.GetValue<string>());
         Assert.Equal(7, evt["sequence"]!.GetValue<long>());
         Assert.Equal("2026-10-15T09:30:00Z", evt["time"]!.GetValue<string>());
         Assert.Equal("incident", evt["resource"]!["type"]!.GetValue<string>());
@@ -74,7 +75,7 @@ public class OpenAuditEventBuilderTests
         Assert.Equal("callu-0123456789abcdef0123456789abcdef", evt["integrity"]!["chainId"]!.GetValue<string>());
         Assert.Equal("seal-1", evt["integrity"]!["batchId"]!.GetValue<string>());
         Assert.Null(evt["integrity"]!["previousHash"]);
-        Assert.Equal("HMAC-SHA256", evt["extensions"]!["com.callu.audit.internal-chain.algorithm"]!.GetValue<string>());
+        Assert.Equal("HMAC-SHA256", evt["extensions"]!["app.callu.audit.internal-chain.algorithm"]!.GetValue<string>());
     }
 
     [Fact]
@@ -96,7 +97,7 @@ public class OpenAuditEventBuilderTests
     [InlineData("2nd-site", "unknown")]
     public void TheHostEnvironment_IsNormalizedToAVocabularyToken(string hostEnvironment, string expected)
     {
-        var evt = Sealed(Row(), First with { Source = new OpenAuditEventSource("Callu", hostEnvironment) });
+        var evt = Sealed(Row(), First with { Source = new OpenAuditEventSource("callu", hostEnvironment) });
 
         Assert.Equal(expected, evt["application"]!["environment"]!.GetValue<string>());
     }
@@ -104,7 +105,7 @@ public class OpenAuditEventBuilderTests
     [Fact]
     public void AnOverlongHostEnvironment_IsCutToTheTokenLimit()
     {
-        var evt = Sealed(Row(), First with { Source = new OpenAuditEventSource("Callu", new string('a', 63) + "_b") });
+        var evt = Sealed(Row(), First with { Source = new OpenAuditEventSource("callu", new string('a', 63) + "_b") });
 
         Assert.Equal(new string('a', 63), evt["application"]!["environment"]!.GetValue<string>());
     }
@@ -292,5 +293,45 @@ public class OpenAuditEventBuilderTests
         var evt = Sealed(Row(r => { r.Details = null; r.ChangeAfter = "[High] Database down"; r.ChangeBefore = null; }));
 
         Assert.Equal("other", evt["change"]!["type"]!.GetValue<string>());
+    }
+
+    // A description written for the panel can name the person who was called; the event must not.
+    [Fact]
+    public void ALegacyRow_ExportsNoSummary_ANewRowKeepsIt()
+    {
+        const string summary = "Ayşe Yılmaz (+90 532 000 00 00) answered; incident resolved";
+
+        var legacy = Sealed(Row(r => { r.Details = null; r.Summary = summary; }));
+        Assert.Null(legacy["event"]!["summary"]);
+
+        var current = Sealed(Row(r => r.Summary = summary));
+        Assert.Equal(summary, current["event"]!["summary"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void ANewRowWithoutAChangeInDetails_ProjectsNoneFromItsChangeColumns()
+    {
+        var evt = Sealed(Row(r =>
+        {
+            r.Details = AuditDetailsJson.Serialize(new AuditDetails { Authorization = AuditAuthorization.NotApplicable });
+            r.ChangeBefore = null;
+            r.ChangeAfter = "format=jsonl; from=2026-10-01T00:00:00Z; sealedThrough=12";
+        }));
+
+        Assert.False(evt.ContainsKey("change"));
+    }
+
+    [Fact]
+    public void ALegacyRowWithTheSameChangeColumns_StillProjectsFieldNames()
+    {
+        var evt = Sealed(Row(r =>
+        {
+            r.Details = null;
+            r.ChangeBefore = null;
+            r.ChangeAfter = "format=jsonl; from=2026-10-01T00:00:00Z; sealedThrough=12";
+        }));
+
+        Assert.Equal(["format", "from", "sealedThrough"],
+            evt["change"]!["changedFields"]!.AsArray().Select(n => n!.GetValue<string>()));
     }
 }

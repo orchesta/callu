@@ -349,8 +349,10 @@ public class VoximplantVoiceCallbackPersistence(
                     incident.Acknowledge(actorUserId ?? callLog.CalledPersonName ?? "Phone Responder");
                     acknowledgedByPhone = true;
                     VoximplantCallDataServiceLog.IncidentAcknowledgedViaCall(logger, callLog.IncidentId);
+                    // Audit summaries travel in the exported event: they say what the key did, never who
+                    // was called. The timeline entries beside them keep the recipient for the panel.
                     auditRows.Add((AuditAction.Acknowledged, "Status: Open", "Status: Acknowledged",
-                        $"Acknowledged by keypress on the call to {recipient}"));
+                        "Acknowledged by keypress on the call"));
 
                     timelineEvent.Title = "Call Acknowledged";
                     timelineEvent.Description = $"Incident acknowledged via phone call to {recipient}";
@@ -375,7 +377,7 @@ public class VoximplantVoiceCallbackPersistence(
                     timelineEvent.Description =
                         $"Phone acknowledgement from {recipient} — incident already in progress ({incident.Status}).";
                     auditRows.Add((AuditAction.Acknowledged, $"Status: {incident.Status}", $"Status: {incident.Status}",
-                        $"Keypress on the call to {recipient} stood down the retries; the incident was already {incident.Status}"));
+                        $"Keypress on the call stood down the retries; the incident was already {incident.Status}"));
 
                     callLog.StandDownRetryChain();
                     await DisarmIncidentVoiceRetriesAsync();
@@ -398,7 +400,7 @@ public class VoximplantVoiceCallbackPersistence(
                 timelineEvent.Title = "Call Escalated";
                 timelineEvent.Description = $"Caller requested escalation during call to {recipient}";
                 auditRows.Add((AuditAction.Escalated, null, null,
-                    $"Escalation requested by keypress on the call to {recipient}"));
+                    "Escalation requested by keypress on the call"));
 
                 callLog.StandDownRetryChain();
 
@@ -455,7 +457,7 @@ public class VoximplantVoiceCallbackPersistence(
                         acknowledgedByPhone = true;
                         VoximplantCallDataServiceLog.IncidentAcknowledgedViaCall(logger, callLog.IncidentId);
                         auditRows.Add((AuditAction.Acknowledged, "Status: Open", "Status: Acknowledged",
-                            $"Acknowledged implicitly by starting a conference on the call to {recipient}"));
+                            "Acknowledged implicitly by starting a conference on the call"));
                     }
 
                     await DisarmIncidentVoiceRetriesAsync();

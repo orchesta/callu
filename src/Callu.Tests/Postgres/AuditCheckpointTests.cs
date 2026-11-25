@@ -27,6 +27,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace Callu.Tests;
 
@@ -75,17 +76,21 @@ public class AuditCheckpointTests(PostgresFixture fixture)
     private static AuditCheckpointService Checkpoints(
         ApplicationDbContext ctx, HttpMessageHandler? handler = null, string? publishUrl = null)
     {
-        var signing = Substitute.For<IAuditSigningKeyService>();
-        signing.GetActiveSignerAsync(Arg.Any<CancellationToken>())
-            .Returns(new Ed25519Signer(OamFixtures.TestKeyId, OamFixtures.TestSeed));
-
         var clients = Substitute.For<IHttpClientFactory>();
         clients.CreateClient(AuditCheckpointService.HttpClientName)
             .Returns(_ => new HttpClient(handler ?? new StubHandler(HttpStatusCode.OK)));
 
-        return new AuditCheckpointService(ctx, signing, clients,
+        return new AuditCheckpointService(ctx, Signing(), clients,
             Options.Create(new AuditCheckpointOptions { PublishUrl = publishUrl }),
             NullLogger<AuditCheckpointService>.Instance);
+    }
+
+    private static IAuditSigningKeyService Signing()
+    {
+        var signing = Substitute.For<IAuditSigningKeyService>();
+        signing.GetActiveSignerAsync(Arg.Any<CancellationToken>())
+            .Returns(new Ed25519Signer(OamFixtures.TestKeyId, OamFixtures.TestSeed));
+        return signing;
     }
 
     private sealed class StubHandler(HttpStatusCode status) : HttpMessageHandler
@@ -137,6 +142,19 @@ public class AuditCheckpointTests(PostgresFixture fixture)
         var (ctx, _) = await SealedAsync(2);
 
         foreach (var reference in new[] { "CHG-1\nsecond line", "CHG-1\r\nx", "CHG-1\u2028x", "CHG-1\u2029x", "CHG-1\tx", "CHG-1\u0000x", "CHG-1\u0085x" })
+            await Assert.ThrowsAsync<ValidationException>(() => Checkpoints(ctx).IssueManualAsync(reference, default));
+
+        Assert.Equal(0, await ctx.AuditCheckpoints.CountAsync());
+    }
+
+    /// <summary>A format character shows nothing on screen, so the reference in the ticket and the one signed could never be matched by eye.</summary>
+    // Trimming does not remove these: a byte-order mark is not white space.
+    [PostgresFact]
+    public async Task AReferenceWithAnInvisibleFormatCharacter_IsRefused_BeforeAnythingIsSigned()
+    {
+        var (ctx, _) = await SealedAsync(2);
+
+        foreach (var reference in new[] { "CHG-7﻿", "CHG-​7", "CHG‍-7", "⁠CHG-7" })
             await Assert.ThrowsAsync<ValidationException>(() => Checkpoints(ctx).IssueManualAsync(reference, default));
 
         Assert.Equal(0, await ctx.AuditCheckpoints.CountAsync());
@@ -282,7 +300,9 @@ public class AuditCheckpointTests(PostgresFixture fixture)
         await job.Execute(JobContext());
 
         var row = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.ResourceType == "AuditCheckpoint");
-        Assert.Equal("audit-checkpoint.publish-failed", row.EventName);
+        Assert.Equal("audit-checkpoint.publish", row.EventName);
+        Assert.Equal(AuditOutcome.Failure, row.Outcome);
+        Assert.Null(row.ResourceId);
         Assert.Contains("integrity", row.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
     }
@@ -411,7 +431,8 @@ public class AuditCheckpointTests(PostgresFixture fixture)
     }
 
     private static async Task<(AuditCheckpointQuartzJob Job, ApplicationDbContext Reader)> JobAsync(
-        string cs, HttpMessageHandler handler, string? url, ILogger<AuditCheckpointQuartzJob>? logger = null)
+        string cs, HttpMessageHandler handler, string? url, ILogger<AuditCheckpointQuartzJob>? logger = null,
+        IAuditSigningKeyService? signing = null)
     {
         var services = new ServiceCollection();
         services.AddScoped(_ => PostgresFixture.Context(cs));
@@ -419,13 +440,11 @@ public class AuditCheckpointTests(PostgresFixture fixture)
             new AuditLogRepository(sp.GetRequiredService<ApplicationDbContext>(), NullLogger<AuditLogRepository>.Instance),
             new HttpContextAccessor { HttpContext = new DefaultHttpContext() },
             new TransactionManager(sp.GetRequiredService<ApplicationDbContext>(), NullLogger<TransactionManager>.Instance)));
-        var signing = Substitute.For<IAuditSigningKeyService>();
-        signing.GetActiveSignerAsync(Arg.Any<CancellationToken>())
-            .Returns(new Ed25519Signer(OamFixtures.TestKeyId, OamFixtures.TestSeed));
+        var keys = signing ?? Signing();
         var clients = Substitute.For<IHttpClientFactory>();
         clients.CreateClient(AuditCheckpointService.HttpClientName).Returns(_ => new HttpClient(handler));
         services.AddScoped(sp => new AuditCheckpointService(
-            sp.GetRequiredService<ApplicationDbContext>(), signing, clients,
+            sp.GetRequiredService<ApplicationDbContext>(), keys, clients,
             Options.Create(new AuditCheckpointOptions { PublishUrl = url }),
             NullLogger<AuditCheckpointService>.Instance));
 
@@ -447,16 +466,23 @@ public class AuditCheckpointTests(PostgresFixture fixture)
         reader.AuditLogs.AsNoTracking().Where(l => l.ResourceType == resourceType)
             .OrderBy(l => l.CreatedAt).Select(l => l.EventName).ToListAsync();
 
+    /// <summary>One name for the operation; the outcome field says how it went, as it does for a login.</summary>
     [PostgresFact]
-    public async Task TheJob_WritesCreate_WhenThePublicationIsAccepted_AndPublishFailed_WhenItIsNot()
+    public async Task TheJob_WritesAPublishRow_WhoseOutcomeSaysWhetherTheUrlAcceptedIt()
     {
         var (_, _, cs) = await SealedWithConnectionAsync(3);
 
         var (okJob, reader) = await JobAsync(cs, new StubHandler(HttpStatusCode.OK), "https://siem.example/c");
         await okJob.Execute(JobContext());
-        Assert.Equal(["audit-checkpoint.create"], await EventNamesAsync(reader, "AuditCheckpoint"));
-        var row = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.ResourceType == "AuditCheckpoint");
-        Assert.Contains("anchor=publication", row.ChangeAfter);
+        var accepted = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.ResourceType == "AuditCheckpoint");
+        Assert.Equal("audit-checkpoint.publish", accepted.EventName);
+        Assert.Equal(AuditOutcome.Success, accepted.Outcome);
+        Assert.NotNull(accepted.ResourceId);
+        Assert.Contains("anchor=publication", accepted.ChangeAfter);
+        var checkpoint = JsonNode.Parse(accepted.Details!)!["metadata"]!["checkpoint"]!;
+        Assert.Equal("publication", checkpoint["anchor"]!.GetValue<string>());
+        Assert.Equal(3, checkpoint["headSequence"]!.GetValue<long>());
+        Assert.Equal(3, checkpoint["eventCount"]!.GetValue<long>());
 
         // Move the head so there is something new to publish, then fail it.
         var more = PostgresFixture.Context(cs);
@@ -467,10 +493,17 @@ public class AuditCheckpointTests(PostgresFixture fixture)
 
         var (badJob, _) = await JobAsync(cs, new StubHandler(HttpStatusCode.BadGateway), "https://siem.example/c");
         await badJob.Execute(JobContext());
-        Assert.Equal(["audit-checkpoint.create", "audit-checkpoint.publish-failed"],
-            await EventNamesAsync(PostgresFixture.Context(cs), "AuditCheckpoint"));
+        var rows = await PostgresFixture.Context(cs).AuditLogs.AsNoTracking()
+            .Where(l => l.ResourceType == "AuditCheckpoint").OrderBy(l => l.CreatedAt).ToListAsync();
+        Assert.Equal(["audit-checkpoint.publish", "audit-checkpoint.publish"], rows.Select(r => r.EventName).ToList());
+        Assert.Equal([AuditOutcome.Success, AuditOutcome.Failure], rows.Select(r => r.Outcome).ToList());
+        var refused = rows[1];
+        Assert.NotNull(refused.ResourceId);
+        Assert.NotEqual(accepted.ResourceId, refused.ResourceId);
+        Assert.Equal(1, JsonNode.Parse(refused.Details!)!["metadata"]!["checkpoint"]!["attempts"]!.GetValue<int>());
     }
 
+    /// <summary>A send that blows up is still a failed publication of the stored checkpoint, and the row names it.</summary>
     [PostgresFact]
     public async Task TheJob_AuditsAnUnexpectedFailure_InsteadOfLettingItEscape()
     {
@@ -479,7 +512,30 @@ public class AuditCheckpointTests(PostgresFixture fixture)
         var (job, reader) = await JobAsync(cs, new ThrowingHandler(), "https://siem.example/c");
         await job.Execute(JobContext());
 
-        Assert.Equal(["audit-checkpoint.publish-failed"], await EventNamesAsync(reader, "AuditCheckpoint"));
+        var row = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.ResourceType == "AuditCheckpoint");
+        Assert.Equal("audit-checkpoint.publish", row.EventName);
+        Assert.Equal(AuditOutcome.Failure, row.Outcome);
+        Assert.Equal((await reader.AuditCheckpoints.AsNoTracking().SingleAsync()).Id, row.ResourceId);
+    }
+
+    /// <summary>With nothing stored there is nothing to name, so the row has no resource id rather than an empty one.</summary>
+    [PostgresFact]
+    public async Task TheJob_RecordsAFailureBeforeAnyCheckpointExists_WithoutAResourceId()
+    {
+        var (_, _, cs) = await SealedWithConnectionAsync(2);
+        var noSigner = Substitute.For<IAuditSigningKeyService>();
+        noSigner.GetActiveSignerAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("no signing key is configured"));
+
+        var (job, reader) = await JobAsync(cs, new StubHandler(HttpStatusCode.OK), "https://siem.example/c", signing: noSigner);
+        await job.Execute(JobContext());
+
+        var row = await reader.AuditLogs.AsNoTracking().SingleAsync(l => l.ResourceType == "AuditCheckpoint");
+        Assert.Equal("audit-checkpoint.publish", row.EventName);
+        Assert.Equal(AuditOutcome.Failure, row.Outcome);
+        Assert.Null(row.ResourceId);
+        Assert.Contains("before a checkpoint could be stored", row.Summary);
+        Assert.Equal(0, await reader.AuditCheckpoints.CountAsync());
     }
 
     [PostgresFact]

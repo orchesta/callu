@@ -11,6 +11,7 @@ using Callu.Shared.Models.Audit;
 using Callu.Shared.Results;
 using Callu.Shared;
 using System.Runtime.CompilerServices;
+using System.Security.Claims;
 
 namespace Callu.Infrastructure.Services;
 
@@ -23,12 +24,18 @@ public class AuditLogService(
     IUserContactRepository? userContacts = null) : IAuditLogService
 {
     /// <summary>Who the actor was, by name, recorded as it stood at the time.</summary>
-    // The signed-in name covers the panel. A keypress on a call arrives on a token-authenticated
-    // callback with no signed-in user, so without the lookup those rows — the ones an auditor most
-    // wants to read — show a bare identifier.
+    // Only a person has a name. The signed-in name is taken only for that person's own rows: a system
+    // row written inside an administrator's request used to carry the administrator's name. A keypress
+    // on a call arrives on a token-authenticated callback with no signed-in user, so without the lookup
+    // those rows — the ones an auditor most wants to read — show a bare identifier.
     private async Task<string?> ActorNameAsync(string? userId, HttpContext? http, CancellationToken cancellationToken)
     {
-        if (http?.User?.Identity?.Name is { Length: > 0 } signedIn) return signedIn;
+        if (AuditRequestContext.ActorType(userId) != AuditActorType.User) return null;
+
+        if (http?.User?.Identity?.Name is { Length: > 0 } signedIn
+            && userId == http.User.FindFirstValue(ClaimTypes.NameIdentifier))
+            return signedIn;
+
         if (userId is not { Length: > 0 } || userContacts is null) return null;
 
         try
@@ -227,7 +234,22 @@ public class AuditLogService(
         if (filter.Action is { } action) query = query.Where(l => l.Action == action);
         if (!string.IsNullOrWhiteSpace(filter.ResourceType)) query = query.Where(l => l.ResourceType == filter.ResourceType);
         if (filter.ResourceTypes is { Count: > 0 } types) query = query.Where(l => types.Contains(l.ResourceType));
-        if (filter.ResourceId is { } resourceId) query = query.Where(l => l.ResourceId == resourceId);
+        if (filter.ResourceId is { } resourceId)
+        {
+            if (filter.IncludeRelated)
+            {
+                // Details is compact JSON text, and a related resource is written there as
+                // {"type":"incident","id":"<guid>"}. Matching the quoted id is exact enough for a trail
+                // and needs no JSON operator on a text column.
+                var pattern = "%\"id\":\"" + resourceId.ToString("D") + "\"%";
+                query = query.Where(l => l.ResourceId == resourceId
+                    || (l.Details != null && EF.Functions.Like(l.Details, pattern)));
+            }
+            else
+            {
+                query = query.Where(l => l.ResourceId == resourceId);
+            }
+        }
         if (!string.IsNullOrWhiteSpace(filter.RequestIpAddress)) query = query.Where(l => l.RequestIpAddress == filter.RequestIpAddress);
 
         if (!string.IsNullOrWhiteSpace(filter.Query))

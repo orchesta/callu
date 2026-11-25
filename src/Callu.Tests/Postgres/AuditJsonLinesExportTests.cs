@@ -26,7 +26,8 @@ namespace Callu.Tests;
 [Collection(PostgresCollection.Name)]
 public class AuditJsonLinesExportTests(PostgresFixture fixture)
 {
-    private sealed record World(AuditLogService Service, ApplicationDbContext Ctx, AuditLogsController Controller, HttpContext Http);
+    private sealed record World(
+        AuditLogService Service, ApplicationDbContext Ctx, AuditLogsController Controller, HttpContext Http, AuditChainService Chain);
 
     private async Task<World> ArrangeAsync(IOpenAuditSigner? signer = null)
     {
@@ -63,7 +64,7 @@ public class AuditJsonLinesExportTests(PostgresFixture fixture)
             ControllerContext = new ControllerContext { HttpContext = http },
         };
 
-        return new World(service, ctx, controller, http);
+        return new World(service, ctx, controller, http, chain);
     }
 
     [PostgresFact]
@@ -95,6 +96,33 @@ public class AuditJsonLinesExportTests(PostgresFixture fixture)
         var last = JsonNode.Parse(Lines(world)[^1])!["sequence"]!.GetValue<long>();
         Assert.Contains($"sealedThrough={last}", exportRow.ChangeAfter);
         Assert.Null(exportRow.OamHash);
+    }
+
+    /// <summary>The export row's own event says what the file covered, in metadata rather than a change,
+    /// and never the search text, which can be a person's name.</summary>
+    [PostgresFact]
+    public async Task TheExportRowsEvent_CarriesTheExportInMetadata_WithoutTheSearchText()
+    {
+        var world = await ArrangeAsync();
+        await world.Service.LogAsync("user-1", AuditAction.Viewed, "Incident", Guid.NewGuid().ToString());
+
+        await world.Controller.Export(new AuditLogFilter { ActorId = "user-1", Query = "Ada Lovelace" }, "jsonl");
+        // Read before the second seal, which takes the export row itself into the chain.
+        var sealedHead = await world.Ctx.AuditLogs.AsNoTracking().Where(l => l.OamHash != null).MaxAsync(l => l.Sequence!.Value);
+        await world.Chain.SealAsync();
+
+        var exportRow = await world.Ctx.AuditLogs.AsNoTracking().SingleAsync(l => l.Action == AuditAction.Exported);
+        var evt = JsonNode.Parse(exportRow.OamEvent!)!.AsObject();
+        var export = evt["metadata"]!["export"]!.AsObject();
+
+        Assert.Equal(sealedHead, export["sealedThrough"]!.GetValue<long>());
+        Assert.Equal("jsonl", export["format"]!.GetValue<string>());
+        Assert.Equal("user-1", export["actorId"]!.GetValue<string>());
+        Assert.False(export.ContainsKey("query"));
+        Assert.False(evt.ContainsKey("change"));
+        Assert.DoesNotContain("Lovelace", exportRow.OamEvent, StringComparison.Ordinal);
+        Assert.Contains($"sealedThrough={sealedHead}", exportRow.ChangeAfter);
+        Assert.Contains("query=Ada Lovelace", exportRow.ChangeAfter);
     }
 
     /// <summary>The first export after an upgrade does not wait for the whole backfill: it seals a bounded

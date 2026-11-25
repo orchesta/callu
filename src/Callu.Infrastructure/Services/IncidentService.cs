@@ -136,7 +136,7 @@ public class IncidentService(
                 await auditLogService.LogAsync(
                     MaintenanceActor, AuditAction.Suppressed, "Service", request.ServiceId.Value.ToString(),
                     null, $"Service in maintenance (SuppressAlerts): {request.Title}",
-                    description: $"Alert suppressed, no incident created: {request.Title}",
+                    description: "Alert suppressed by a maintenance window; no incident created",
                     cancellationToken: cancellationToken);
                 return new IncidentCreateResult
                 {
@@ -192,12 +192,14 @@ public class IncidentService(
                 EventType = TimelineEventType.Created,
                 Title = "Incident created",
                 Description = $"[{incident.Severity}] {incident.Title}",
-                ActorUserId = currentUser.UserId ?? "system"
+                ActorUserId = Actor()
             }, cancellationToken);
 
+            // The summary travels in the exported event, so it says what happened and never repeats
+            // the title an alert source or a person typed; the timeline entry above keeps the title.
             await auditLogService.LogAsync(new AuditRecord(Actor(), AuditAction.Created, "Incident", incident.Id.ToString())
             {
-                Description = $"[{incident.Severity}] {incident.Title}",
+                Description = $"Incident created with severity {incident.Severity}",
                 Details = IncidentAuditDetails.Created(incident),
             }, cancellationToken);
 
@@ -425,7 +427,7 @@ public class IncidentService(
             if (!string.IsNullOrWhiteSpace(request.Status) &&
                 Enum.TryParse<IncidentStatus>(request.Status, ignoreCase: true, out var target))
             {
-                var actor = currentUser.UserId ?? SystemCurrentUserService.SystemUserId;
+                var actor = Actor();
                 try
                 {
                     incident.ChangeStatus(target, actor);
@@ -1416,11 +1418,14 @@ public class IncidentService(
     /// <summary>Who a maintenance window acts as.</summary>
     private const string MaintenanceActor = "system:maintenance";
 
-    /// <summary>The acting user, or the system sentinel when there is no HTTP principal.</summary>
+    /// <summary>The acting user, else the ambient service actor, else the system sentinel.</summary>
     // An empty string is not "the system": it hashes differently from null while meaning the same
-    // thing, and it matches no value an auditor can filter for.
+    // thing, and it matches no value an auditor can filter for. The ambient actor is how an inbound
+    // webhook, which has no principal, signs the rows it writes through this service.
     private string Actor() =>
-        string.IsNullOrEmpty(currentUser.UserId) ? SystemCurrentUserService.SystemUserId : currentUser.UserId;
+        !string.IsNullOrEmpty(currentUser.UserId)
+            ? currentUser.UserId
+            : AuditActorScope.Current ?? SystemCurrentUserService.SystemUserId;
 
     /// <summary>Ends every Active conference room for the incident.</summary>
     // Idempotent set-based UPDATE in the caller's transaction, so the join URL dies with the incident instead of on the expiry sweep.

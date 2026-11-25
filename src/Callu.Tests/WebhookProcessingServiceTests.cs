@@ -6,6 +6,7 @@ using Callu.Infrastructure.Persistence.Repositories;
 using Callu.Infrastructure.Services;
 using Callu.Infrastructure.Services.Models;
 using Callu.Infrastructure.Telemetry;
+using Callu.Shared.Models.Audit;
 using Callu.Shared.Models.Incidents;
 using Callu.Shared.Models.Webhooks;
 using Microsoft.EntityFrameworkCore;
@@ -405,7 +406,7 @@ public class WebhookProcessingServiceTests : IDisposable
 
         Assert.True(result.Success);
         Assert.NotNull(result.IncidentId);
-        await _incidentService.Received(1).ResolveIncidentAsync(Arg.Any<Guid>(), "system:webhook", IncidentTransitionNote.AlertClearedBySource, Arg.Any<CancellationToken>());
+        await _incidentService.Received(1).ResolveIncidentAsync(Arg.Any<Guid>(), AuditActors.Webhook, IncidentTransitionNote.AlertClearedBySource, Arg.Any<CancellationToken>());
     }
 
     [Fact]

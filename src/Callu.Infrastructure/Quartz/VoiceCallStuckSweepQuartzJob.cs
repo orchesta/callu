@@ -102,7 +102,8 @@ public sealed class VoiceCallStuckSweepQuartzJob(
                 callLog.IncidentId.ToString(),
                 oldValues: $"Status: {lastStatus}",
                 newValues: $"Status: {CallStatus.Failed}",
-                description: $"Voice call to {recipient} never reported a final status; marked failed and a further attempt armed.",
+                // The summary travels in the exported event, so it says what happened, never who was called.
+                description: "A voice call never reported a final status; marked failed and a further attempt armed.",
                 cancellationToken: ct);
         }
         catch (Exception ex)

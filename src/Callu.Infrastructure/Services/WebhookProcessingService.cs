@@ -34,9 +34,6 @@ public class WebhookProcessingService(
     CalluMetrics metrics,
     ILogger<WebhookProcessingService> logger) : IWebhookProcessingService
 {
-    /// <summary>Who an inbound webhook acts as, in the same shape as the other system actors.</summary>
-    private const string WebhookActor = "system:webhook";
-
     private static readonly HashSet<string> SensitiveHeaderNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "authorization", "cookie", "set-cookie", "x-callu-api-key", "x-api-key", "apikey", "api-key",
@@ -102,6 +99,9 @@ public class WebhookProcessingService(
         // The request is anonymous to ASP.NET; the service's webhook key is what admitted it, and
         // every row this alert writes — the incident it opens or resolves — was allowed on that key.
         using var authorization = AuditAuthorizationScope.Begin(AuditAuthorization.WebhookKey);
+        // The incident this alert opens is written by the incident service, which has no principal
+        // to read here; the ambient actor is how that row still says the webhook wrote it.
+        using var actor = AuditActorScope.Begin(AuditActors.Webhook);
 
         var sw = Stopwatch.StartNew();
         try
@@ -429,7 +429,7 @@ public class WebhookProcessingService(
                 if (incidentToResolve != null)
                 {
                     await incidentService.ResolveIncidentAsync(
-                        incidentToResolve.Id, WebhookActor, IncidentTransitionNote.AlertClearedBySource, cancellationToken);
+                        incidentToResolve.Id, AuditActors.Webhook, IncidentTransitionNote.AlertClearedBySource, cancellationToken);
 
                     return new WebhookProcessResult
                     {

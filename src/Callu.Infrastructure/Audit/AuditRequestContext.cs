@@ -12,6 +12,7 @@ public static class AuditRequestContext
 {
     private const string Engine = "aspnetcore-authorization";
     private const string SystemActorPrefix = "system:";
+    private const string ServiceActorPrefix = "service:";
     private const string BareSystemActor = "system";
 
     /// <summary>The endpoint's route template, or null when no route endpoint served the request.</summary>
@@ -23,9 +24,11 @@ public static class AuditRequestContext
     public static string Normalize(RoutePattern pattern) =>
         "/" + string.Join('/', pattern.PathSegments.Select(segment => string.Concat(segment.Parts.Select(Part))));
 
+    // Literals are lower-cased: `[controller]` expands to the class name ("Incidents"), routing matches
+    // either case, and a stored event keeps its route for good, so one spelling has to be chosen once.
     private static string Part(RoutePatternPart part) => part switch
     {
-        RoutePatternLiteralPart literal => literal.Content,
+        RoutePatternLiteralPart literal => literal.Content.ToLowerInvariant(),
         RoutePatternParameterPart parameter => "{" + parameter.Name + "}",
         RoutePatternSeparatorPart separator => separator.Content,
         _ => string.Empty,
@@ -55,9 +58,13 @@ public static class AuditRequestContext
             : new AuditAuthorization("allow", Engine, policies[^1], policies);
     }
 
-    /// <summary>Who did it: nobody named, the bare "system" id, or a "system:*" sentinel, is the system.</summary>
-    public static AuditActorType ActorType(string? userId) =>
-        userId is null || userId == BareSystemActor || userId.StartsWith(SystemActorPrefix, StringComparison.Ordinal)
-            ? AuditActorType.System
-            : AuditActorType.User;
+    /// <summary>Who did it: nobody named, the bare "system" id, or a "system:*" sentinel is the system;
+    /// a "service:*" id is a service of callu's own, such as the inbound alert webhook; anything else is a user.</summary>
+    public static AuditActorType ActorType(string? userId) => userId switch
+    {
+        null or BareSystemActor => AuditActorType.System,
+        _ when userId.StartsWith(SystemActorPrefix, StringComparison.Ordinal) => AuditActorType.System,
+        _ when userId.StartsWith(ServiceActorPrefix, StringComparison.Ordinal) => AuditActorType.Service,
+        _ => AuditActorType.User,
+    };
 }

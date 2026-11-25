@@ -171,19 +171,38 @@ public class AuditArchiveTests(PostgresFixture fixture) : IDisposable
         Assert.DoesNotContain(Files(), f => f.StartsWith("audit-", StringComparison.Ordinal));
     }
 
+    private static AuditCheckpointService Checkpoints(ApplicationDbContext ctx) =>
+        new(ctx, Substitute.For<IAuditSigningKeyService>(), Substitute.For<IHttpClientFactory>(),
+            Options.Create(new AuditCheckpointOptions()), NullLogger<AuditCheckpointService>.Instance);
+
+    private string CheckpointCopy(AuditCheckpoint checkpoint) =>
+        Path.Combine(_directory, "checkpoints", $"checkpoint-{checkpoint.HeadSequence:D12}-{checkpoint.Id:N}.json");
+
     [PostgresFact]
     public async Task IssuedCheckpoints_AreCopiedIntoTheArchive()
     {
         var ctx = await SeededAsync();
-        var checkpoints = new AuditCheckpointService(ctx,
-            Substitute.For<IAuditSigningKeyService>(), Substitute.For<IHttpClientFactory>(),
-            Options.Create(new AuditCheckpointOptions()), NullLogger<AuditCheckpointService>.Instance);
-        var checkpoint = await checkpoints.IssueManualAsync("CHG-archive", default);
+        var checkpoint = await Checkpoints(ctx).IssueManualAsync("CHG-archive", default);
 
         await Archive(ctx).ArchiveAsync(Now);
 
-        var path = Path.Combine(_directory, "checkpoints", $"checkpoint-{checkpoint!.HeadSequence:D12}.json");
-        Assert.Equal(checkpoint.Document, File.ReadAllText(path));
+        Assert.Equal(checkpoint!.Document, File.ReadAllText(CheckpointCopy(checkpoint)));
+    }
+
+    /// <summary>Two checkpoints over one head are two signed statements, and the archive has to keep both.</summary>
+    [PostgresFact]
+    public async Task TwoCheckpointsAtTheSameHead_AreBothCopiedIntoTheArchive()
+    {
+        var ctx = await SeededAsync();
+        var first = await Checkpoints(ctx).IssueManualAsync("CHG-1", default);
+        var second = await Checkpoints(ctx).IssueManualAsync("CHG-2", default);
+
+        await Archive(ctx).ArchiveAsync(Now);
+
+        Assert.Equal(first!.HeadSequence, second!.HeadSequence);
+        Assert.Equal(2, Directory.EnumerateFiles(Path.Combine(_directory, "checkpoints")).Count());
+        Assert.Equal(first.Document, File.ReadAllText(CheckpointCopy(first)));
+        Assert.Equal(second.Document, File.ReadAllText(CheckpointCopy(second)));
     }
 
     // ---- what gets written -------------------------------------------------

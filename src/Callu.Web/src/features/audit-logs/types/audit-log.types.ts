@@ -71,6 +71,8 @@ export interface AuditLogSearchFilter {
   /** Narrows to any of the listed resource types. */
   resourceTypes?: string[];
   resourceId?: string;
+  /** Also rows whose details name the resource as a related resource. */
+  includeRelated?: boolean;
   requestIpAddress?: string;
   /** Matches the actor name, the summary, or the request route. */
   query?: string;

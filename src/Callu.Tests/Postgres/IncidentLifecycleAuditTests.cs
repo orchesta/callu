@@ -90,6 +90,35 @@ public class IncidentLifecycleAuditTests(PostgresFixture pg)
         await using var ctx = PostgresFixture.Context(world.ConnectionString);
         var row = await ctx.AuditLogs.SingleAsync(l => l.ResourceId == created && l.EventName == "incident.create");
         Assert.DoesNotContain("Disk filling up", row.ChangeAfter ?? string.Empty, StringComparison.Ordinal);
+        Assert.Equal("Incident created with severity Low", row.Summary);
+    }
+
+    /// <summary>An alert webhook has no principal; the ambient actor is how its rows say who wrote them.</summary>
+    [PostgresFact]
+    public async Task AnIncidentOpenedInsideTheWebhookActorScope_IsTheWebhookServices_AndTheSystemsOutsideIt()
+    {
+        var world = await ArrangeAsync();
+
+        Guid byWebhook;
+        using (AuditActorScope.Begin(AuditActors.Webhook))
+            byWebhook = await CreateAsync(world, IncidentSeverity.High);
+        var bySystem = await CreateAsync(world, IncidentSeverity.High);
+
+        await using var ctx = PostgresFixture.Context(world.ConnectionString);
+        var webhookRow = await ctx.AuditLogs.SingleAsync(l => l.ResourceId == byWebhook && l.EventName == "incident.create");
+        Assert.Equal(AuditActors.Webhook, webhookRow.ActorId);
+        Assert.Equal(AuditActorType.Service, webhookRow.ActorType);
+        Assert.Null(webhookRow.ActorDisplayName);
+
+        // The timeline entry for the same act names the same actor as the audit row.
+        var webhookTimeline = await ctx.Set<IncidentTimelineEvent>()
+            .SingleAsync(e => e.IncidentId == byWebhook && e.EventType == TimelineEventType.Created);
+        Assert.Equal(AuditActors.Webhook, webhookTimeline.ActorUserId);
+
+        var systemRow = await ctx.AuditLogs.SingleAsync(l => l.ResourceId == bySystem && l.EventName == "incident.create");
+        Assert.Equal("system", systemRow.ActorId);
+        Assert.Equal(AuditActorType.System, systemRow.ActorType);
+        Assert.Null(systemRow.ActorDisplayName);
     }
 
     [PostgresFact]
